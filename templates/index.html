@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>RK Solutions</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+  <!-- ======================== SCREEN 1: LOGIN ======================== -->
+  <section id="screen-login" class="screen-login-wrapper active">
+    <div class="mockup-frame-outer">
+      <div class="mockup-card-inner">
+        <!-- Brand Logo Row -->
+        <div class="brand-header">
+          <svg class="rk-logo-vector" viewBox="0 0 100 85" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M 50 4 L 92 80 L 73 80 L 50 36 L 27 80 L 8 80 Z" fill="#2563eb" />
+            <path d="M 50 24 L 67 58 L 33 58 Z" fill="#ef4444" />
+          </svg>
+          <span class="brand-name-text">RK Solutions</span>
+        </div>
+
+        <!-- Welcome Text -->
+        <div class="welcome-section">
+          <h1 class="welcome-title">Welcome!</h1>
+          <p class="welcome-desc">Enter your email</p>
+        </div>
+
+        <!-- Email Input Box (Guaranteed Empty, No Autofill) -->
+        <div class="input-phone-container">
+          <div class="phone-box-wrapper">
+            <svg class="phone-receiver-icon" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+              <polyline points="22,6 12,13 2,6"/>
+            </svg>
+            <input type="email" id="login-email" placeholder="Enter your email" autocomplete="new-off" autocorrect="off" autocapitalize="off" spellcheck="false" value="">
+          </div>
+        </div>
+
+        <!-- Send OTP Button with 60-second Cooldown -->
+        <button id="btn-send-otp" class="btn-send-otp" onclick="sendLoginEmailOTP()">Send OTP</button>
+
+        <!-- Enter 6-Digit OTP Block (Strict Horizontal Alignment) -->
+        <div class="otp-entry-section">
+          <label class="otp-entry-label">Enter OTP</label>
+          <div class="custom-otp-wrapper otp-6-grid" onclick="focusOtpCollector()">
+            <input type="tel" id="otp-hidden-collector" maxlength="6" autocomplete="new-off" autocorrect="off" autocapitalize="off" spellcheck="false" value="">
+            <div class="otp-box-view" id="otp-box-0"></div>
+            <div class="otp-box-view" id="otp-box-1"></div>
+            <div class="otp-box-view" id="otp-box-2"></div>
+            <div class="otp-box-view" id="otp-box-3"></div>
+            <div class="otp-box-view" id="otp-box-4"></div>
+            <div class="otp-box-view" id="otp-box-5"></div>
+          </div>
+          <span id="otp-timer-label" class="otp-timer-text hidden">Resend OTP in 60s</span>
+        </div>
+
+        <!-- Login Button (Enables when 6 digits are entered) -->
+        <button id="btn-verify-otp" class="btn-login-gold disabled-btn" onclick="verifyLoginEmailOTP()" disabled>Login</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================== MAIN APP SHELL ======================== -->
+  <div id="app-shell" class="hidden">
+    <header class="app-header">
+      <div class="header-left">
+        <button id="header-back-btn" class="header-back-btn" onclick="navigatePreviousScreen()" title="Go Back">
+          <i class="fa-solid fa-arrow-left"></i>
+        </button>
+        <h4 id="header-title">Dashboard</h4>
+      </div>
+      <div class="header-right">
+        <button id="header-admin-btn" class="header-admin-btn hidden" onclick="openAdminTeamPage()" title="Admin Dashboard">
+          <i class="fa-solid fa-user-shield"></i><span>Admin Dashboard</span>
+        </button>
+        <span id="header-member-id" class="badge-member">LP1001</span>
+      </div>
+    </header>
+
+    <main class="app-body">
+      <!-- SCREEN 2: DASHBOARD -->
+      <section id="screen-dashboard" class="sub-screen active">
+        <div class="partner-welcome">
+          <div>
+            <h3>Hi, Partner!</h3>
+            <span class="text-sm text-gray" id="user-subtext">Member ID: LP1001</span>
+          </div>
+          <div class="date-filter-box">
+            <input type="date" id="dash-date-filter" onchange="onDashboardDateChange()">
+          </div>
+        </div>
+
+        <div class="metrics-grid">
+          <div class="metric-card">
+            <div class="metric-icon green-icon"><i class="fa-solid fa-users"></i></div>
+            <div class="metric-content">
+              <span class="label">Membership</span>
+              <strong id="metric-membership">15</strong>
+            </div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-icon orange-icon"><i class="fa-solid fa-book-open"></i></div>
+            <div class="metric-content">
+              <span class="label">Smart Book</span>
+              <strong id="metric-smartbook">22</strong>
+            </div>
+          </div>
+        </div>
+
+        <div class="metrics-grid mt-2">
+          <div class="metric-card earning-card">
+            <div class="metric-icon blue-icon"><i class="fa-solid fa-indian-rupee-sign"></i></div>
+            <div class="metric-content">
+              <span class="label">Paid Earning</span>
+              <strong id="metric-earnings">₹8,250</strong>
+            </div>
+          </div>
+          <div class="metric-card earning-card">
+            <div class="metric-icon red-icon"><i class="fa-solid fa-wallet"></i></div>
+            <div class="metric-content">
+              <span class="label">Wallet Balance</span>
+              <strong id="metric-wallet">₹1,200</strong>
+            </div>
+          </div>
+        </div>
+
+        <div class="dashboard-actions">
+          <button class="btn btn-add-customer" onclick="openAddCustomerModal()">
+            <i class="fa-solid fa-user-plus"></i> + Add New Customer
+          </button>
+        </div>
+
+        <div class="referral-card">
+          <div class="referral-title"><i class="fa-solid fa-share-nodes"></i> Refer a Partner</div>
+          <p class="text-sm">Share your unique link. When someone installs or registers, reward is automatically credited.</p>
+          <div class="referral-link-row">
+            <input type="text" id="referral-url" readonly value="">
+            <button class="btn btn-copy" onclick="copyReferralLink()"><i class="fa-regular fa-copy"></i> Copy</button>
+          </div>
+          <div class="social-share-buttons">
+            <button class="btn btn-whatsapp" onclick="shareSocial('whatsapp')"><i class="fa-brands fa-whatsapp"></i> WhatsApp</button>
+            <button class="btn btn-instagram" onclick="shareSocial('instagram')"><i class="fa-brands fa-instagram"></i> Instagram</button>
+            <button class="btn btn-facebook" onclick="shareSocial('facebook')"><i class="fa-brands fa-facebook"></i> Facebook</button>
+          </div>
+        </div>
+
+        <div class="banner-container">
+          <div class="banner-slide" id="banner-active">
+            <div class="banner-text">
+              <h4 id="banner-title">Exclusive Smart Book Training</h4>
+              <p id="banner-subtitle">Live interactive sessions in 5 regional languages.</p>
+            </div>
+          </div>
+          <div class="banner-dots" id="banner-dots">
+            <span class="dot active" onclick="setBanner(0)"></span>
+            <span class="dot" onclick="setBanner(1)"></span>
+            <span class="dot" onclick="setBanner(2)"></span>
+          </div>
+        </div>
+
+        <!-- Admin only: add / edit / replace / delete the 3 advertisements (hidden for everyone else) -->
+        <div id="ads-admin-actions" class="ads-admin-actions hidden">
+          <button class="btn btn-outline w-100" onclick="openAdsManager()">
+            <i class="fa-solid fa-rectangle-ad"></i> Manage Advertisements
+          </button>
+        </div>
+      </section>
+
+      <!-- SCREEN 3: CUSTOMERS CRM -->
+      <section id="screen-customers" class="sub-screen">
+        <div class="sub-header-row">
+          <div class="search-input">
+            <i class="fa-solid fa-magnifying-glass"></i>
+            <input type="text" id="cust-search" placeholder="Search by name or phone" oninput="loadCustomerList()">
+          </div>
+          <button class="btn btn-icon" onclick="toggleDateFilter()"><i class="fa-solid fa-filter"></i></button>
+          <button class="btn btn-primary btn-sm" onclick="openAddCustomerModal()"><i class="fa-solid fa-plus"></i></button>
+        </div>
+
+        <div class="status-pills">
+          <button class="pill active" onclick="filterByStatus('All', this)">All</button>
+          <button class="pill" onclick="filterByStatus('New', this)">New</button>
+          <button class="pill" onclick="filterByStatus('Called', this)">Called</button>
+          <button class="pill" onclick="filterByStatus('Interested', this)">Interested</button>
+          <button class="pill" onclick="filterByStatus('Joined', this)">Joined</button>
+        </div>
+
+        <div id="customer-list-container" class="card-list"></div>
+
+        <div class="customer-bottom-bar">
+          <div class="left-tools">
+            <input type="date" id="cust-date-filter" onchange="loadCustomerList()">
+          </div>
+          <div class="right-tools">
+            <button class="btn btn-outline btn-sm" onclick="exportData('excel')"><i class="fa-solid fa-file-excel"></i> Export Excel</button>
+            <button class="btn btn-outline btn-sm" onclick="exportData('pdf')"><i class="fa-solid fa-file-pdf"></i> Export PDF</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- SCREEN 4: TRAINING & RESOURCES MAIN HUB -->
+      <section id="screen-training" class="sub-screen">
+        <div class="training-screen-wrapper">
+          <div class="training-top-header">
+            <button class="btn-training-back" onclick="switchTab('dashboard')">Back</button>
+            <h4 class="training-header-title">Training & Resources</h4>
+          </div>
+
+          <div class="training-lang-filter-card">
+            <div class="lang-label-row">
+              <i class="fa-solid fa-layer-group lang-icon-purple"></i>
+              <span class="lang-label-text">Select Content Language:</span>
+            </div>
+            <select id="training-language-select" class="training-lang-select" onchange="onLanguageChanged()">
+              <option value="English">English</option>
+              <option value="Tamil">Tamil</option>
+              <option value="Telugu">Telugu</option>
+              <option value="Hindi">Hindi</option>
+              <option value="Kannada">Kannada</option>
+            </select>
+          </div>
+
+          <div class="training-items-list">
+            <div class="tr-resource-row" onclick="navigateToTrainingSection('video')">
+              <div class="tr-icon-col tr-icon-blue"><i class="fa-solid fa-video"></i></div>
+              <div class="tr-content-col">
+                <h5 class="tr-item-title">Training Video</h5>
+                <p class="tr-item-desc">20 IT tutorial videos (30 mins each)</p>
+              </div>
+              <div class="tr-action-col"><div class="btn-play-circle-blue"><i class="fa-solid fa-play"></i></div></div>
+            </div>
+
+            <div class="tr-resource-row" onclick="navigateToTrainingSection('sales_script')">
+              <div class="tr-icon-col tr-icon-orange"><i class="fa-solid fa-file-lines"></i></div>
+              <div class="tr-content-col">
+                <h5 class="tr-item-title">Sales Script</h5>
+                <p class="tr-item-desc">50 Notepad documents</p>
+              </div>
+              <div class="tr-action-col"><span class="badge-pill-orange">View</span></div>
+            </div>
+
+            <div class="tr-resource-row" onclick="navigateToTrainingSection('faq')">
+              <div class="tr-icon-col tr-icon-purple"><i class="fa-solid fa-circle-question"></i></div>
+              <div class="tr-content-col">
+                <h5 class="tr-item-title">FAQ</h5>
+                <p class="tr-item-desc">Frequently asked questions</p>
+              </div>
+              <div class="tr-action-col"><span class="badge-pill-purple">View</span></div>
+            </div>
+
+            <div class="tr-resource-row" onclick="navigateToTrainingSection('poster')">
+              <div class="tr-icon-col tr-icon-red"><i class="fa-solid fa-image"></i></div>
+              <div class="tr-content-col">
+                <h5 class="tr-item-title">Poster</h5>
+                <p class="tr-item-desc">50 JPEG marketing posters</p>
+              </div>
+              <div class="tr-action-col"><div class="btn-download-circle-red"><i class="fa-solid fa-download"></i></div></div>
+            </div>
+
+            <div class="tr-resource-row" onclick="navigateToTrainingSection('smart_book')">
+              <div class="tr-icon-col tr-icon-green"><i class="fa-solid fa-book"></i></div>
+              <div class="tr-content-col">
+                <h5 class="tr-item-title">Sample Smart Book</h5>
+                <p class="tr-item-desc">50 sample handbooks & PDFs</p>
+              </div>
+              <div class="tr-action-col"><span class="badge-pill-green">View</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- SCREEN 4-A: VIDEOS PAGE -->
+      <section id="screen-training-videos" class="sub-screen">
+        <div class="subpage-header-bar">
+          <button class="btn btn-secondary btn-sm" onclick="returnToTrainingHub()"><i class="fa-solid fa-arrow-left"></i> Back</button>
+          <h4 id="videos-page-title">Training Videos</h4>
+          <span class="badge-lang" id="badge-lang-videos">English</span>
+        </div>
+        <div id="videos-list-container" class="resource-items-scroll"></div>
+      </section>
+
+      <!-- SCREEN 4-B: SALES SCRIPTS (HEADINGS ONLY) -->
+      <section id="screen-training-scripts" class="sub-screen">
+        <div class="subpage-header-bar">
+          <button class="btn btn-secondary btn-sm" onclick="returnToTrainingHub()"><i class="fa-solid fa-arrow-left"></i> Back</button>
+          <h4 id="scripts-page-title">Sales Scripts</h4>
+          <span class="badge-lang" id="badge-lang-scripts">English</span>
+        </div>
+        <div id="scripts-list-container" class="resource-items-scroll"></div>
+      </section>
+
+      <!-- SCREEN 4-C: FAQ PAGE (STRICT LANGUAGE ACCORDION) -->
+      <section id="screen-training-faq" class="sub-screen">
+        <div class="subpage-header-bar">
+          <button class="btn btn-secondary btn-sm" onclick="returnToTrainingHub()"><i class="fa-solid fa-arrow-left"></i> Back</button>
+          <h4 id="faq-page-title">Frequently Asked Questions</h4>
+          <span class="badge-lang" id="badge-lang-faq">English</span>
+        </div>
+        <div id="faq-list-container" class="resource-items-scroll"></div>
+      </section>
+
+      <!-- SCREEN 4-D: POSTERS PAGE -->
+      <section id="screen-training-posters" class="sub-screen">
+        <div class="subpage-header-bar">
+          <button class="btn btn-secondary btn-sm" onclick="returnToTrainingHub()"><i class="fa-solid fa-arrow-left"></i> Back</button>
+          <h4 id="posters-page-title">Marketing Posters</h4>
+          <span class="badge-lang" id="badge-lang-posters">English</span>
+        </div>
+        <div id="posters-grid-container" class="poster-grid-layout"></div>
+      </section>
+
+      <!-- SCREEN 4-E: SAMPLE SMART BOOK PAGE -->
+      <section id="screen-training-smartbook" class="sub-screen">
+        <div class="subpage-header-bar">
+          <button class="btn btn-secondary btn-sm" onclick="returnToTrainingHub()"><i class="fa-solid fa-arrow-left"></i> Back</button>
+          <h4 id="smartbook-page-title">Sample Smart Books</h4>
+          <span class="badge-lang" id="badge-lang-smartbook">English</span>
+        </div>
+        <div id="smartbook-list-container" class="resource-items-scroll"></div>
+      </section>
+
+      <!-- SCREEN 5: MY REPORT -->
+      <section id="screen-reports" class="sub-screen">
+        <div class="reports-header-box">
+          <label>Filter by Date Range:</label>
+          <input type="date" id="reports-date-filter" onchange="loadReports()">
+        </div>
+        <div id="reports-container" class="reports-container"></div>
+      </section>
+
+      <!-- SCREEN 6: PROFILE -->
+      <section id="screen-profile" class="sub-screen">
+        <div class="profile-avatar-card">
+          <div class="avatar-circle"><i class="fa-solid fa-user"></i></div>
+          <h4 id="prof-name">Partner</h4>
+          <span class="text-sm text-gray" id="prof-member-id">Member ID: LP1001</span>
+        </div>
+
+        <div class="profile-details">
+          <div class="prof-item">
+            <label>Email:</label>
+            <span id="prof-email">---</span>
+          </div>
+          <div class="prof-item">
+            <label>City:</label>
+            <span id="prof-city">---</span>
+          </div>
+        </div>
+
+        <div class="profile-actions">
+          <button class="btn btn-outline w-100 mb-2" onclick="openChangePasswordModal()">
+            <i class="fa-solid fa-key"></i> CHANGE PASSWORD
+          </button>
+          <button class="btn btn-danger w-100" onclick="logoutApp()">LOGOUT</button>
+        </div>
+      </section>
+
+      <!-- SCREEN 7: PAYMENT SUCCESSFUL -->
+      <section id="screen-payment-success" class="sub-screen">
+        <div class="payment-success-card">
+          <div class="success-icon-wrapper">
+            <i class="fa-solid fa-circle-check success-check-icon"></i>
+          </div>
+          <h2 class="success-heading">Payment Successful!</h2>
+          <p class="success-subtext">The customer registration and payment details have been recorded successfully.</p>
+          
+          <div class="order-summary-box">
+            <div class="summary-line">
+              <span>Customer ID:</span>
+              <strong id="success-cust-id">2026-00001</strong>
+            </div>
+            <div class="summary-line">
+              <span>Customer Name:</span>
+              <strong id="success-cust-name">---</strong>
+            </div>
+            <div class="summary-line">
+              <span>Amount Paid:</span>
+              <strong id="success-amount">₹955.00</strong>
+            </div>
+            <div class="summary-line">
+              <span>Order Status:</span>
+              <span class="badge-status badge-Joined">Request Received</span>
+            </div>
+          </div>
+
+          <button class="btn btn-primary w-100 btn-view-customers" onclick="switchTab('customers')">
+            <i class="fa-solid fa-list-check"></i> View Customer List
+          </button>
+          <button class="btn btn-outline w-100 mt-2" onclick="switchTab('dashboard')">
+            Go to Dashboard
+          </button>
+        </div>
+      </section>
+
+      <!-- SCREEN 8: ADMIN CONTROL CENTER -->
+      <section id="screen-admin" class="sub-screen">
+        <div class="admin-top-summary">
+          <h4>Admin Portal (RK Solution Internal)</h4>
+          <div class="summary-pill-group">
+            <span class="badge badge-warning" id="admin-pending-count">Pending: 0</span>
+            <span class="badge badge-success" id="admin-processed-count">Processed: 0</span>
+          </div>
+        </div>
+
+        <div class="mb-3">
+          <button class="btn btn-primary btn-sm" onclick="openAdminUploadModal()">
+            <i class="fa-solid fa-cloud-arrow-up"></i> Upload Training Material
+          </button>
+        </div>
+
+        <div class="table-responsive">
+          <table class="admin-table">
+            <thead>
+              <tr>
+                <th>Request Date</th>
+                <th>Name</th>
+                <th>Code</th>
+                <th>YouTube Link</th>
+                <th>1st Keyword</th>
+                <th>2nd Keyword</th>
+                <th>3rd Keyword</th>
+                <th>Uploaded All Files</th>
+              </tr>
+            </thead>
+            <tbody id="admin-requests-tbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- SCREEN 9: ADMIN TEAM MEMBERS (ADMIN DASHBOARD) -->
+      <section id="screen-admin-team" class="sub-screen">
+        <div class="team-banner">Admin (RK Solution internal team members)</div>
+
+        <div class="team-summary-row">
+          <div class="summary-pill-group">
+            <span class="badge" id="team-total-count">Total: 0</span>
+            <span class="badge badge-success" id="team-uploaded-count">Uploaded: 0</span>
+            <span class="badge badge-warning" id="team-pending-count">Pending: 0</span>
+          </div>
+          <button class="btn btn-outline btn-sm" onclick="loadAdminTeam()"><i class="fa-solid fa-rotate"></i> Refresh</button>
+        </div>
+
+        <div class="team-table-wrap">
+          <table class="team-table">
+            <thead>
+              <tr>
+                <th class="th-date"><i class="fa-regular fa-calendar-days"></i> Request Date</th>
+                <th class="th-name"><i class="fa-solid fa-user"></i> Name</th>
+                <th class="th-member">Member ID</th>
+                <th class="th-youtube"><i class="fa-brands fa-youtube"></i> Youtube link</th>
+                <th class="th-kw1"><i class="fa-solid fa-magnifying-glass"></i> 1st Keyword Search</th>
+                <th class="th-kw2"><i class="fa-solid fa-magnifying-glass"></i> 2nd Keyword Search</th>
+                <th class="th-kw3"><i class="fa-solid fa-magnifying-glass"></i> 3rd Keyword Search</th>
+                <th class="th-upload"><i class="fa-solid fa-cloud-arrow-up"></i> Uploaded all Files</th>
+              </tr>
+            </thead>
+            <tbody id="team-members-tbody">
+              <tr><td colspan="8" class="team-empty">Loading team members...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <!-- Bottom Navigation -->
+    <nav class="bottom-nav">
+      <button class="nav-item active" onclick="switchTab('dashboard')"><i class="fa-solid fa-house"></i><span>Home</span></button>
+      <button class="nav-item" onclick="switchTab('customers')"><i class="fa-solid fa-users"></i><span>Customers</span></button>
+      <button class="nav-item" onclick="switchTab('training')"><i class="fa-solid fa-graduation-cap"></i><span>Training</span></button>
+      <button class="nav-item" onclick="switchTab('reports')"><i class="fa-solid fa-file-invoice"></i><span>Reports</span></button>
+      <button class="nav-item" onclick="switchTab('profile')"><i class="fa-solid fa-user"></i><span>Profile</span></button>
+    </nav>
+  </div>
+
+  <!-- Modals -->
+  <div id="modal-add-customer" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h4>Add New Customer</h4>
+        <button class="btn-close" onclick="closeModal('modal-add-customer')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Select Plan / Membership</label>
+          <select id="cust-plan" onchange="onPlanSelected()">
+            <option value="Membership" data-amount="955">1. Membership — ₹955</option>
+            <option value="Smart Book" data-amount="300">2. Smart Book — ₹300</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Customer ID (Auto Generated)</label>
+          <input type="text" id="cust-auto-id" readonly value="" class="input-readonly">
+        </div>
+        <div class="form-group">
+          <label>Customer Name *</label>
+          <input type="text" id="cust-name" placeholder="Enter customer name">
+        </div>
+        <div class="form-group">
+          <label>Phone Number *</label>
+          <input type="tel" id="cust-phone" placeholder="Enter phone number">
+        </div>
+        <div class="form-group">
+          <label>City / Location</label>
+          <input type="text" id="cust-city" placeholder="Enter city or location">
+        </div>
+        <div class="form-group">
+          <label>YouTube Channel Link</label>
+          <input type="url" id="cust-youtube" placeholder="Enter or paste YouTube URL">
+        </div>
+        <div class="form-group">
+          <label>1st Keyword Search</label>
+          <input type="text" id="cust-kw1" placeholder="e.g. Best C++ trainer in Tamil">
+        </div>
+        <div class="form-group">
+          <label>2nd Keyword Search</label>
+          <input type="text" id="cust-kw2" placeholder="e.g. NEET previous year 2025 question paper solved">
+        </div>
+        <div class="form-group">
+          <label>3rd Keyword Search</label>
+          <input type="text" id="cust-kw3" placeholder="e.g. How to becomes successful business in 2030">
+        </div>
+        <div class="form-group">
+          <label>Comments / Business Notes</label>
+          <textarea id="cust-comments" placeholder="Comments on customer preferences..."></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('modal-add-customer')">CANCEL</button>
+        <button class="btn btn-primary" onclick="proceedToPaymentGateway()">NEXT</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="modal-payment-upi" class="modal-backdrop hidden">
+    <div class="modal-card text-center">
+      <div class="modal-header">
+        <h4>UPI Payment</h4>
+        <button class="btn-close" onclick="closeModal('modal-payment-upi')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <h3 id="upi-amount-display" class="amount-title">Amount: ₹955</h3>
+        <p class="text-sm text-gray">Only UPI option active currently.</p>
+        <div class="bank-qr-box">
+          <div class="bank-title">India Post Payments Bank</div>
+          <div class="qr-placeholder">
+            <img src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=upi://pay?pa=9940461351@postbank&pn=GP+RAMAKRISHNAN" alt="UPI QR">
+          </div>
+          <div class="vpa-text"><strong>GP RAMAKRISHNAN</strong></div>
+          <div class="vpa-id">9940461351@postbank</div>
+        </div>
+        <div class="whatsapp-instruction-box">
+          <p>Send the payment screenshot to the WhatsApp number below. Click to open WhatsApp.</p>
+          <button class="btn btn-whatsapp w-100" onclick="sendScreenshotWhatsApp()">
+            <i class="fa-brands fa-whatsapp"></i> WhatsApp 9940461351
+          </button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="backToAddCustomerModal()">Back</button>
+        <button class="btn btn-primary" onclick="confirmPaymentAndSaveCustomer()">Confirm & Submit</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="modal-edit-customer" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h4>Edit Customer Status</h4>
+        <button class="btn-close" onclick="closeModal('modal-edit-customer')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="edit-cust-id">
+        <div class="form-group">
+          <label>Customer Name</label>
+          <input type="text" id="edit-cust-name" readonly class="input-readonly">
+        </div>
+        <div class="form-group">
+          <label>Update Lead Status</label>
+          <select id="edit-cust-status">
+            <option value="New">New</option>
+            <option value="Called">Called</option>
+            <option value="Interested">Interested</option>
+            <option value="Joined">Joined</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Comments</label>
+          <textarea id="edit-cust-comments"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('modal-edit-customer')">Cancel</button>
+        <button class="btn btn-primary" onclick="saveCustomerStatus()">Save Changes</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="modal-script-fullview" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h4 id="script-full-title">Sales Script</h4>
+        <button class="btn-close" onclick="closeModal('modal-script-fullview')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="script-full-content" class="script-modal-view"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" onclick="copyFullScriptText()"><i class="fa-regular fa-copy"></i> Copy Script</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="modal-admin-upload" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h4>Upload Training Resource</h4>
+        <button class="btn-close" onclick="closeModal('modal-admin-upload')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="admin-material-form" onsubmit="submitAdminMaterial(event)">
+          <div class="form-group">
+            <label>Resource Category *</label>
+            <select id="adm-mat-cat" required>
+              <option value="video">Training Video</option>
+              <option value="sales_script">Sales Script</option>
+              <option value="faq">FAQ</option>
+              <option value="poster">Poster</option>
+              <option value="smart_book">Sample Smart Book</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Language *</label>
+            <select id="adm-mat-lang" required>
+              <option value="English">English</option>
+              <option value="Tamil">Tamil</option>
+              <option value="Telugu">Telugu</option>
+              <option value="Hindi">Hindi</option>
+              <option value="Kannada">Kannada</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Title / Heading *</label>
+            <input type="text" id="adm-mat-title" placeholder="e.g. Script 51 – Closing Call" required>
+          </div>
+          <div class="form-group">
+            <label>Description / Subtitle</label>
+            <input type="text" id="adm-mat-desc" placeholder="e.g. Pitch Script">
+          </div>
+          <div class="form-group">
+            <label>Content</label>
+            <textarea id="adm-mat-content" rows="4" placeholder="Enter content lines..."></textarea>
+          </div>
+          <div class="form-group">
+            <label>Attach File</label>
+            <input type="file" id="adm-mat-file">
+          </div>
+          <button type="submit" class="btn btn-primary w-100">Publish Material</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div id="modal-team-upload" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h4>Upload Files &amp; Folders</h4>
+        <button class="btn-close" onclick="closeTeamUploadModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="team-upload-target" id="team-upload-target"></div>
+
+        <div class="team-upload-pickers">
+          <input type="file" id="team-file-input" multiple class="hidden"
+                 accept=".pdf,.xls,.xlsx,.xlsm,.csv,.ods,.doc,.docx,.rtf,.odt,.txt,.ppt,.pptx,.png,.jpg,.jpeg,.gif,.webp,.zip,.rar,.7z,.json,.xml"
+                 onchange="onTeamFilesPicked(this)">
+          <input type="file" id="team-folder-input" class="hidden" webkitdirectory directory multiple
+                 onchange="onTeamFilesPicked(this)">
+          <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('team-file-input').click()">
+            <i class="fa-solid fa-file-circle-plus"></i> Select Files
+          </button>
+          <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('team-folder-input').click()">
+            <i class="fa-solid fa-folder-open"></i> Select Folder
+          </button>
+        </div>
+        <p class="team-upload-hint">PDF, Excel, Word, PowerPoint, images, ZIP and more &middot; up to 50 MB per file &middot; folder structure is preserved.</p>
+
+        <div id="team-pending-box" class="team-pending-box hidden">
+          <div class="team-pending-head">
+            <strong id="team-pending-summary">0 files selected</strong>
+            <button type="button" class="team-clear-btn" onclick="clearTeamPendingFiles()">Clear</button>
+          </div>
+          <ul id="team-pending-list" class="team-pending-list"></ul>
+        </div>
+
+        <div id="team-progress-box" class="team-progress-box hidden">
+          <div class="team-progress-track"><div id="team-progress-bar" class="team-progress-bar"></div></div>
+          <span id="team-progress-text" class="text-sm text-gray"></span>
+        </div>
+        <div id="team-upload-result" class="team-upload-result"></div>
+
+        <button type="button" id="team-upload-btn" class="btn btn-primary w-100" onclick="startTeamUpload()">
+          <i class="fa-solid fa-cloud-arrow-up"></i> Upload to Member
+        </button>
+
+        <h5 class="team-files-title">Files already uploaded for this member</h5>
+        <div id="team-existing-files" class="team-existing-files"><span class="text-sm text-gray">Loading...</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="modal-manage-ads" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h4>Manage Advertisements</h4>
+        <button class="btn-close" onclick="closeModal('modal-manage-ads')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="text-sm text-gray ads-manager-hint">These 3 advertisements are shown on every user's and team member's dashboard. Only the admin can change them.</p>
+        <div id="ads-slots-container"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="modal-change-password" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h4>Change Password via OTP</h4>
+        <button class="btn-close" onclick="closeModal('modal-change-password')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="text-sm">We will send an OTP to your registered email address.</p>
+        <button class="btn btn-outline w-100 mb-3" onclick="requestPasswordResetOTP()">Send Reset OTP</button>
+        <div id="pwd-otp-group" class="hidden">
+          <div class="form-group">
+            <label>Enter 6-Digit OTP</label>
+            <input type="text" id="reset-otp-input" maxlength="6" placeholder="123456">
+          </div>
+          <div class="form-group">
+            <label>New Password</label>
+            <input type="password" id="reset-new-pwd" placeholder="Enter at least 6 characters">
+          </div>
+          <button class="btn btn-primary w-100" onclick="submitPasswordReset()">Update Password</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

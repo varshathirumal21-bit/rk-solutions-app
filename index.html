@@ -1,0 +1,782 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RK Solutions - Partner Portal</title>
+  <style>
+    :root {
+      --primary: #4f46e5;
+      --primary-dark: #4338ca;
+      --secondary: #06b6d4;
+      --bg-color: #f3f4f6;
+      --card-bg: #ffffff;
+      --text-main: #1f2937;
+      --text-muted: #6b7280;
+      --border-color: #e5e7eb;
+      --success: #10b981;
+      --warning: #f59e0b;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    body {
+      background-color: #1a1a24;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+    }
+
+    /* Mobile Container Frame */
+    .app-viewport {
+      width: 100%;
+      max-width: 420px;
+      height: 100vh;
+      max-height: 880px;
+      background-color: var(--bg-color);
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    }
+
+    @media (min-width: 480px) {
+      .app-viewport {
+        border-radius: 36px;
+        height: 92vh;
+        border: 8px solid #2d2d3a;
+      }
+    }
+
+    /* Status Bar */
+    .status-bar {
+      height: 36px;
+      background: var(--primary);
+      color: white;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0 16px;
+      font-size: 12px;
+      font-weight: 600;
+      z-index: 10;
+    }
+
+    /* Header */
+    .app-header {
+      background: var(--primary);
+      color: white;
+      padding: 12px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      z-index: 10;
+    }
+
+    .app-header h1 {
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    /* Main Screen Scroll Area */
+    .screen-container {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+      padding-bottom: 75px;
+    }
+
+    .screen {
+      display: none;
+    }
+
+    .screen.active {
+      display: block;
+    }
+
+    /* Bottom Navigation */
+    .bottom-nav {
+      position: absolute;
+      bottom: 0;
+      width: 100%;
+      height: 60px;
+      background: white;
+      border-top: 1px solid var(--border-color);
+      display: flex;
+      justify-content: space-around;
+      align-items: center;
+      z-index: 10;
+    }
+
+    .nav-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      font-size: 11px;
+      color: var(--text-muted);
+      cursor: pointer;
+      border: none;
+      background: none;
+      width: 25%;
+    }
+
+    .nav-item.active {
+      color: var(--primary);
+      font-weight: bold;
+    }
+
+    .nav-item svg {
+      width: 22px;
+      height: 22px;
+      fill: currentColor;
+      margin-bottom: 2px;
+    }
+
+    /* Cards & Components */
+    .card {
+      background: var(--card-bg);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 16px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+
+    .form-group {
+      margin-bottom: 14px;
+    }
+
+    .form-group label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-main);
+      margin-bottom: 6px;
+    }
+
+    .form-control {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      font-size: 14px;
+      outline: none;
+    }
+
+    .form-control:focus {
+      border-color: var(--primary);
+    }
+
+    .btn {
+      width: 100%;
+      padding: 12px;
+      border: none;
+      border-radius: 8px;
+      background: var(--primary);
+      color: white;
+      font-weight: 600;
+      font-size: 14px;
+      cursor: pointer;
+      text-align: center;
+      display: inline-block;
+      text-decoration: none;
+    }
+
+    .btn-secondary {
+      background: #e0e7ff;
+      color: var(--primary);
+    }
+
+    .btn-outline {
+      background: transparent;
+      border: 1px solid var(--primary);
+      color: var(--primary);
+    }
+
+    .btn-danger {
+      background: #ef4444;
+      color: white;
+    }
+
+    /* Dashboard Stats */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .stat-card {
+      background: white;
+      padding: 14px;
+      border-radius: 12px;
+      text-align: center;
+      border-left: 4px solid var(--primary);
+    }
+
+    .stat-card .val {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+
+    .stat-card .lbl {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    /* Badges */
+    .badge {
+      padding: 4px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+      display: inline-block;
+    }
+    .badge-new { background: #dbeafe; color: #1e40af; }
+    .badge-interested { background: #fef3c7; color: #92400e; }
+    .badge-joined { background: #d1fae5; color: #065f46; }
+    .badge-called { background: #e0e7ff; color: #3730a3; }
+
+    /* Filter Tabs */
+    .tabs {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      padding-bottom: 8px;
+      margin-bottom: 12px;
+    }
+
+    .tab {
+      padding: 6px 14px;
+      background: #e5e7eb;
+      border-radius: 16px;
+      font-size: 12px;
+      white-space: nowrap;
+      cursor: pointer;
+      border: none;
+    }
+
+    .tab.active {
+      background: var(--primary);
+      color: white;
+    }
+
+    /* Modal / Gateway Overlay */
+    .modal-overlay {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.6);
+      display: none;
+      justify-content: center;
+      align-items: flex-end;
+      z-index: 100;
+    }
+
+    .modal-overlay.active {
+      display: flex;
+    }
+
+    .modal-body {
+      background: white;
+      width: 100%;
+      border-top-left-radius: 20px;
+      border-top-right-radius: 20px;
+      padding: 20px;
+      max-height: 80%;
+      overflow-y: auto;
+      animation: slideUp 0.3s ease-out;
+    }
+
+    @keyframes slideUp {
+      from { transform: translateY(100%); }
+      to { transform: translateY(0); }
+    }
+
+    .whatsapp-btn {
+      background: #25d366;
+      color: white;
+      border: none;
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+  </style>
+</head>
+<body>
+
+<div class="app-viewport">
+  <!-- Status Bar -->
+  <div class="status-bar">
+    <span>9:41</span>
+    <span>RK Solutions</span>
+    <span>100% 🔋</span>
+  </div>
+
+  <!-- Header -->
+  <div class="app-header">
+    <h1 id="page-title">Login</h1>
+    <span id="user-greeting" style="font-size: 12px; opacity: 0.9;"></span>
+  </div>
+
+  <!-- Main Container -->
+  <div class="screen-container">
+
+    <!-- 1. LOGIN SCREEN -->
+    <div id="screen-login" class="screen active">
+      <div class="card" style="margin-top: 40px; text-align: center;">
+        <h2 style="margin-bottom: 8px; color: var(--primary);">RK Solutions</h2>
+        <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 24px;">Welcome! Enter your credentials to continue.</p>
+        
+        <div class="form-group" style="text-align: left;">
+          <label>Mobile Number</label>
+          <input type="tel" id="login-phone" class="form-control" placeholder="Enter mobile number" value="9876543210">
+        </div>
+
+        <div class="form-group" style="text-align: left;" id="otp-group">
+          <label>Enter OTP</label>
+          <input type="text" id="login-otp" class="form-control" placeholder="Enter OTP (Default: 1234)" value="1234">
+        </div>
+
+        <button class="btn" onclick="handleLogin()">Login / Verify OTP</button>
+      </div>
+    </div>
+
+    <!-- 2. DASHBOARD SCREEN -->
+    <div id="screen-dashboard" class="screen">
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="val">15</div>
+          <div class="lbl">Membership</div>
+        </div>
+        <div class="stat-card">
+          <div class="val">22</div>
+          <div class="lbl">Smart Book</div>
+        </div>
+      </div>
+
+      <div class="card" style="background: linear-gradient(135deg, #4f46e5, #06b6d4); color: white;">
+        <div style="font-size: 12px; opacity: 0.9;">Paid Earning</div>
+        <div style="font-size: 28px; font-weight: bold; margin: 4px 0;">₹8,250</div>
+        <div style="font-size: 12px; opacity: 0.9;">Wallet Balance: ₹1,200</div>
+      </div>
+
+      <div class="card">
+        <h3 style="font-size: 15px; margin-bottom: 12px;">Quick Actions</h3>
+        <button class="btn" style="margin-bottom: 8px;" onclick="switchScreen('screen-add-customer', 'Add Customer')">+ Add New Customer</button>
+        <button class="btn btn-secondary" onclick="switchScreen('screen-my-report', 'My Reports')">View Generated Reports</button>
+      </div>
+    </div>
+
+    <!-- 3. ADD CUSTOMER & KEYWORD REQUEST SCREEN -->
+    <div id="screen-add-customer" class="screen">
+      <div class="card">
+        <h3 style="font-size: 15px; margin-bottom: 14px;">Customer Registration & Request</h3>
+        
+        <div class="form-group">
+          <label>Customer ID / Plan Type</label>
+          <select id="cust-plan" class="form-control" onchange="togglePlanPrice()">
+            <option value="955">Membership - Rs 955</option>
+            <option value="300">Smart Book - Rs 300</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>Customer ID</label>
+          <input type="text" id="cust-id" class="form-control" placeholder="Enter customer ID (e.g. CUST-10046)">
+        </div>
+
+        <div class="form-group">
+          <label>Phone Number</label>
+          <input type="tel" id="cust-phone" class="form-control" placeholder="Enter phone number">
+        </div>
+
+        <div class="form-group">
+          <label>City</label>
+          <input type="text" id="cust-city" class="form-control" placeholder="Enter city">
+        </div>
+
+        <div class="form-group">
+          <label>Interested In</label>
+          <select class="form-control">
+            <option>TNPSC Coaching</option>
+            <option>NEET Preparation</option>
+            <option>Computer / Programming</option>
+            <option>Business & Finance</option>
+          </select>
+        </div>
+
+        <hr style="margin: 16px 0; border: none; border-top: 1px dashed var(--border-color);">
+
+        <div class="form-group">
+          <label>YouTube Channel Link</label>
+          <input type="url" class="form-control" placeholder="Enter YouTube channel link">
+        </div>
+
+        <div class="form-group">
+          <label>1st Keyword Search</label>
+          <input type="text" class="form-control" placeholder="e.g. Best C++ trainer in Tamil">
+        </div>
+
+        <div class="form-group">
+          <label>2nd Keyword Search</label>
+          <input type="text" class="form-control" placeholder="e.g. NEET previous year 2025 question paper solved">
+        </div>
+
+        <div class="form-group">
+          <label>3rd Keyword Search</label>
+          <input type="text" class="form-control" placeholder="e.g. How to become successful business in 2030">
+        </div>
+
+        <button class="btn" onclick="openPaymentGateway()">Proceed to Pay (<span id="pay-amount-btn">Rs 955</span>)</button>
+      </div>
+    </div>
+
+    <!-- 4. CUSTOMER LIST SCREEN -->
+    <div id="screen-customers" class="screen">
+      <div style="margin-bottom: 12px; display: flex; gap: 8px;">
+        <input type="text" id="search-input" class="form-control" placeholder="Search by name or phone..." onkeyup="filterCustomers()">
+        <input type="date" id="date-filter" class="form-control" style="width: 130px;" onchange="filterCustomers()">
+      </div>
+
+      <div class="tabs">
+        <button class="tab active" onclick="filterTab('All', this)">All</button>
+        <button class="tab" onclick="filterTab('New', this)">New</button>
+        <button class="tab" onclick="filterTab('Called', this)">Called</button>
+        <button class="tab" onclick="filterTab('Interested', this)">Interested</button>
+        <button class="tab" onclick="filterTab('Joined', this)">Joined</button>
+      </div>
+
+      <div id="customer-list-container">
+        <!-- Dynamic customer list rendered here -->
+      </div>
+
+      <div style="margin-top: 16px; display: flex; gap: 8px;">
+        <button class="btn btn-outline" onclick="downloadCustomerReport('excel')">📊 Export Excel</button>
+        <button class="btn btn-outline" onclick="downloadCustomerReport('pdf')">📄 Export PDF</button>
+      </div>
+    </div>
+
+    <!-- 5. TRAINING SCREEN -->
+    <div id="screen-training" class="screen">
+      <div class="card">
+        <label style="font-size: 13px; font-weight: bold; margin-bottom: 6px; display: block;">Select Preferred Language:</label>
+        <select class="form-control" id="lang-selector" onchange="filterTrainingByLang()">
+          <option value="All">All Languages</option>
+          <option value="English">English</option>
+          <option value="Tamil">Tamil</option>
+          <option value="Telugu">Telugu</option>
+          <option value="Hindi">Hindi</option>
+          <option value="Kannada">Kannada</option>
+        </select>
+      </div>
+
+      <div class="card">
+        <h3>Training Videos</h3>
+        <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">Admin uploaded 20 modules (30 mins each)</p>
+        <div id="video-list"></div>
+      </div>
+
+      <div class="card">
+        <h3>Sales Script & Notepad</h3>
+        <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">50 Notepads available</p>
+        <div id="script-list"></div>
+      </div>
+
+      <div class="card">
+        <h3>Posters & Banners</h3>
+        <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">50 Promotional Images</p>
+        <div id="poster-list"></div>
+      </div>
+
+      <div class="card">
+        <h3>Sample Smart Book</h3>
+        <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">50 PDF Handbooks</p>
+        <div id="book-list"></div>
+      </div>
+    </div>
+
+    <!-- 6. MY REPORT / ORDER STATUS SCREEN -->
+    <div id="screen-my-report" class="screen">
+      <div class="card" style="border-left: 4px solid var(--warning);">
+        <h4 style="font-size: 14px; color: var(--warning);">Order Processing Notice</h4>
+        <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Your submitted keyword request report is being processed. Maximum 60 minutes required.</p>
+      </div>
+
+      <div class="card">
+        <h3 style="font-size: 14px; margin-bottom: 10px;">Generated Material Library</h3>
+        
+        <div style="border-bottom: 1px solid var(--border-color); padding-bottom: 10px; margin-bottom: 10px;">
+          <strong style="font-size: 12px; color: var(--primary);">Batch Date: 18-Aug-2026</strong>
+          <div style="margin-top: 6px; font-size: 13px;">
+            📄 Sri Sairam TNPSC Coaching Centre
+            <div style="margin-top: 4px;">
+              <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 11px; width: auto;" onclick="alert('Downloading PDF Report...')">Download PDF</button>
+              <button class="btn btn-outline" style="padding: 4px 8px; font-size: 11px; width: auto;" onclick="triggerShare()">Share Link</button>
+            </div>
+          </div>
+          <div style="margin-top: 8px; font-size: 12px; color: var(--text-muted);">
+            • Best C++ trainer in Tamil<br>
+            • NEET previous year 2025 question paper solved<br>
+            • How to become successful business in 2030
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 7. SHARE LINK SCREEN -->
+    <div id="screen-share" class="screen">
+      <div class="card" style="text-align: center;">
+        <h3>Referral Program</h3>
+        <p style="font-size: 13px; color: var(--text-muted); margin: 10px 0;">Share a single-click link with friends. When they install the app directly from Play Store, your referral reward is counted automatically!</p>
+        
+        <div class="form-group" style="margin-top: 16px;">
+          <input type="text" id="share-url" class="form-control" value="https://play.google.com/store/apps/details?id=com.rksolutions.app&referrer=LP1001" readonly style="text-align: center; font-size: 12px;">
+        </div>
+
+        <button class="btn" onclick="copyShareLink()">Copy Referral Link</button>
+      </div>
+    </div>
+
+    <!-- 8. PROFILE SCREEN -->
+    <div id="screen-profile" class="screen">
+      <div class="card" style="text-align: center;">
+        <div style="width: 60px; height: 60px; border-radius: 50%; background: #e0e7ff; color: var(--primary); font-size: 24px; display: flex; align-items: center; justify-content: center; margin: 0 auto 12px auto; font-weight: bold;">RK</div>
+        <h3>Ravi Kumar</h3>
+        <p style="font-size: 12px; color: var(--text-muted);">Partner ID: LP1001</p>
+      </div>
+
+      <div class="card">
+        <div class="form-group">
+          <label>Phone Number</label>
+          <input type="text" class="form-control" value="9876543210" readonly>
+        </div>
+        <div class="form-group">
+          <label>City</label>
+          <input type="text" class="form-control" value="Coimbatore">
+        </div>
+        <div class="form-group">
+          <label>Member ID</label>
+          <input type="text" class="form-control" value="LP1001" readonly>
+        </div>
+
+        <button class="btn btn-outline" style="margin-bottom: 8px;" onclick="alert('Password reset link sent to registered mobile!')">Change Password</button>
+        <button class="btn btn-danger" onclick="logout()">Logout</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Bottom Navigation Bar -->
+  <div class="bottom-nav" id="main-nav" style="display: none;">
+    <button class="nav-item active" onclick="switchScreen('screen-dashboard', 'Dashboard', this)">
+      <svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+      Home
+    </button>
+    <button class="nav-item" onclick="switchScreen('screen-customers', 'Customer List', this)">
+      <svg viewBox="0 0 24 24"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+      Customers
+    </button>
+    <button class="nav-item" onclick="switchScreen('screen-training', 'Training & Resources', this)">
+      <svg viewBox="0 0 24 24"><path d="M5 13.18v4L12 21l7-3.82v-4L12 17l-7-3.82zM12 3L1 9l11 6 9-4.91V17h2V9L12 3z"/></svg>
+      Training
+    </button>
+    <button class="nav-item" onclick="switchScreen('screen-profile', 'My Profile', this)">
+      <svg viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+      Profile
+    </button>
+  </div>
+
+  <!-- PAYMENT GATEWAY MODAL OVERLAY -->
+  <div id="payment-modal" class="modal-overlay">
+    <div class="modal-body">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <strong style="font-size: 16px;">Razorpay Secure Payment</strong>
+        <span onclick="closePaymentGateway()" style="cursor: pointer; font-weight: bold; font-size: 18px;">✕</span>
+      </div>
+      <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 16px;">100% Secure & Encrypted</p>
+      
+      <div style="font-size: 20px; font-weight: bold; margin-bottom: 16px; color: var(--primary);" id="modal-pay-amount">₹955</div>
+
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <button class="btn btn-outline" style="text-align: left;" onclick="completePayment('UPI / Google Pay')">📱 UPI (Google Pay, PhonePe, Paytm)</button>
+        <button class="btn btn-outline" style="text-align: left;" onclick="completePayment('Cards')">💳 Card (Visa, Mastercard, Rupay)</button>
+        <button class="btn btn-outline" style="text-align: left;" onclick="completePayment('Net Banking')">🏦 Net Banking (All major banks)</button>
+        <button class="btn btn-outline" style="text-align: left;" onclick="completePayment('Wallets')">👛 Wallets (Paytm, Amazon Pay)</button>
+      </div>
+      <button class="btn btn-secondary" style="margin-top: 12px;" onclick="closePaymentGateway()">Cancel Payment</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // Initial Sample Data
+  const customers = [
+    { id: 'CUST-10042', name: 'Ramesh Kumar', phone: '9876543210', date: '2025-05-20', status: 'New' },
+    { id: 'CUST-10043', name: 'Suresh Babu', phone: '9123456780', date: '2025-05-19', status: 'Interested' },
+    { id: 'CUST-10044', name: 'Meena Devi', phone: '9988776655', date: '2025-05-18', status: 'Joined' },
+    { id: 'CUST-10045', name: 'Karthik Raja', phone: '9000112233', date: '2025-05-17', status: 'Called' }
+  ];
+
+  let currentTab = 'All';
+
+  function handleLogin() {
+    const phone = document.getElementById('login-phone').value;
+    if (!phone) {
+      alert('Please enter mobile number');
+      return;
+    }
+    document.getElementById('main-nav').style.display = 'flex';
+    document.getElementById('user-greeting').innerText = 'Hi, Partner!';
+    switchScreen('screen-dashboard', 'Dashboard', document.querySelectorAll('.nav-item')[0]);
+  }
+
+  function logout() {
+    document.getElementById('main-nav').style.display = 'none';
+    document.getElementById('user-greeting').innerText = '';
+    switchScreen('screen-login', 'Login');
+  }
+
+  function switchScreen(screenId, title, navEl) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.getElementById(screenId).classList.add('active');
+    document.getElementById('page-title').innerText = title;
+
+    if (navEl) {
+      document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+      navEl.classList.add('active');
+    }
+
+    if (screenId === 'screen-customers') {
+      renderCustomers();
+    } else if (screenId === 'screen-training') {
+      filterTrainingByLang();
+    }
+  }
+
+  function togglePlanPrice() {
+    const price = document.getElementById('cust-plan').value;
+    document.getElementById('pay-amount-btn').innerText = 'Rs ' + price;
+  }
+
+  function openPaymentGateway() {
+    const price = document.getElementById('cust-plan').value;
+    document.getElementById('modal-pay-amount').innerText = '₹' + price;
+    document.getElementById('payment-modal').classList.add('active');
+  }
+
+  function closePaymentGateway() {
+    document.getElementById('payment-modal').classList.remove('active');
+  }
+
+  function completePayment(method) {
+    closePaymentGateway();
+    const custId = document.getElementById('cust-id').value || 'CUST-' + Math.floor(10000 + Math.random() * 90000);
+    const custPhone = document.getElementById('cust-phone').value || '9876543210';
+    
+    customers.unshift({
+      id: custId,
+      name: 'New Customer',
+      phone: custPhone,
+      date: new Date().toISOString().split('T')[0],
+      status: 'New'
+    });
+
+    alert('Payment Successful via ' + method + '! Request received and added to report queue.');
+    switchScreen('screen-my-report', 'Order Status');
+  }
+
+  function renderCustomers() {
+    const container = document.getElementById('customer-list-container');
+    const search = document.getElementById('search-input').value.toLowerCase();
+    const dateVal = document.getElementById('date-filter').value;
+
+    const filtered = customers.filter(c => {
+      const matchSearch = c.name.toLowerCase().includes(search) || c.phone.includes(search);
+      const matchTab = (currentTab === 'All' || c.status === currentTab);
+      const matchDate = !dateVal || c.date === dateVal;
+      return matchSearch && matchTab && matchDate;
+    });
+
+    if (filtered.length === 0) {
+      container.innerHTML = '<div style="text-align:center; color: var(--text-muted); padding: 20px;">No customers found</div>';
+      return;
+    }
+
+    container.innerHTML = filtered.map(c => `
+      <div class="card" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <div>
+          <div style="font-weight: bold; font-size: 14px;">${c.name} <span class="badge badge-${c.status.toLowerCase()}">${c.status}</span></div>
+          <div style="font-size: 12px; color: var(--text-muted);">${c.phone} | ${c.id}</div>
+          <div style="font-size: 11px; color: var(--text-muted);">${c.date}</div>
+        </div>
+        <div style="display: flex; gap: 6px; align-items: center;">
+          <a href="https://wa.me/91${c.phone}" target="_blank" class="whatsapp-btn">💬 WA</a>
+          <button class="btn btn-secondary" style="padding: 6px 10px; font-size: 11px; width: auto;" onclick="alert('Viewing Customer Details for ${c.name}')">View</button>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  function filterCustomers() {
+    renderCustomers();
+  }
+
+  function filterTab(tabName, el) {
+    currentTab = tabName;
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    el.classList.add('active');
+    renderCustomers();
+  }
+
+  function downloadCustomerReport(type) {
+    alert('Generating and downloading report in ' + type.toUpperCase() + ' format...');
+  }
+
+  function filterTrainingByLang() {
+    const lang = document.getElementById('lang-selector').value;
+    
+    document.getElementById('video-list').innerHTML = `
+      <div style="padding: 8px; border-bottom: 1px solid #eee; font-size: 13px;">▶ Module 1: Introduction to RK Solutions (${lang})</div>
+      <div style="padding: 8px; font-size: 13px;">▶ Module 2: Sales Strategy & Pitch (${lang})</div>
+    `;
+
+    document.getElementById('script-list').innerHTML = `
+      <div style="padding: 8px; font-size: 13px;">📄 Sales Script Guide 2026 (${lang}) - <a href="#" style="color:var(--primary);">Download Notepad</a></div>
+    `;
+
+    document.getElementById('poster-list').innerHTML = `
+      <div style="padding: 8px; font-size: 13px;">🖼️ Promotional Banner Kit (${lang}) - <a href="#" style="color:var(--primary);">Download JPEG</a></div>
+    `;
+
+    document.getElementById('book-list').innerHTML = `
+      <div style="padding: 8px; font-size: 13px;">📚 Sample SmartBook Vol 1 (${lang}) - <a href="#" style="color:var(--primary);">View PDF</a></div>
+    `;
+  }
+
+  function triggerShare() {
+    switchScreen('screen-share', 'Share Link');
+  }
+
+  function copyShareLink() {
+    const copyText = document.getElementById('share-url');
+    copyText.select();
+    navigator.clipboard.writeText(copyText.value);
+    alert('Referral link copied to clipboard!');
+  }
+</script>
+</body>
+</html>

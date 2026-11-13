@@ -65,8 +65,39 @@
 
   <!-- ======================== MAIN APP SHELL ======================== -->
   <div id="app-shell" class="hidden">
+    <div id="sidebar-backdrop" class="sidebar-backdrop hidden" onclick="closeSidebar()"></div>
+    <aside id="app-sidebar" class="app-sidebar" aria-label="Sidebar Navigation">
+      <div class="sidebar-header">
+        <span class="sidebar-brand">RK Solutions</span>
+        <button id="sidebar-close-btn" class="sidebar-close-btn" onclick="closeSidebar()" title="Close Sidebar">&times;</button>
+      </div>
+
+      <div class="sidebar-wallet-section">
+        <div class="metric-card earning-card sidebar-wallet-card">
+          <div class="metric-icon red-icon"><i class="fa-solid fa-wallet"></i></div>
+          <div class="metric-content">
+            <span class="label">Wallet Balance</span>
+            <strong id="sidebar-wallet-balance">₹0</strong>
+          </div>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <button class="sidebar-nav-item active" data-tab="dashboard" onclick="sidebarNavigate('dashboard')"><i class="fa-solid fa-house"></i><span>Dashboard</span></button>
+        <button class="sidebar-nav-item" data-tab="customers" onclick="sidebarNavigate('customers')"><i class="fa-solid fa-users"></i><span>Customers</span></button>
+        <button class="sidebar-nav-item" data-tab="training" onclick="sidebarNavigate('training')"><i class="fa-solid fa-graduation-cap"></i><span>Training</span></button>
+        <button class="sidebar-nav-item" data-tab="reports" onclick="sidebarNavigate('reports')"><i class="fa-solid fa-file-invoice"></i><span>Reports</span></button>
+        <button class="sidebar-nav-item" data-tab="profile" onclick="sidebarNavigate('profile')"><i class="fa-solid fa-user"></i><span>Profile</span></button>
+        <button id="sidebar-admin-btn" class="sidebar-nav-item hidden" data-tab="admin-team" onclick="sidebarNavigate('admin-team')"><i class="fa-solid fa-user-shield"></i><span>Admin Dashboard</span></button>
+        <button id="sidebar-admin-materials-btn" class="sidebar-nav-item hidden" data-tab="admin-materials" onclick="sidebarNavigate('admin-materials')"><i class="fa-solid fa-folder-plus"></i><span>Manage Training</span></button>
+      </nav>
+    </aside>
+
     <header class="app-header">
       <div class="header-left">
+        <button id="sidebar-toggle-btn" class="header-menu-btn" onclick="toggleSidebar()" title="Open Sidebar">
+          <i class="fa-solid fa-bars"></i>
+        </button>
         <button id="header-back-btn" class="header-back-btn" onclick="navigatePreviousScreen()" title="Go Back">
           <i class="fa-solid fa-arrow-left"></i>
         </button>
@@ -76,7 +107,6 @@
         <button id="header-admin-btn" class="header-admin-btn hidden" onclick="openAdminTeamPage()" title="Admin Dashboard">
           <i class="fa-solid fa-user-shield"></i><span>Admin Dashboard</span>
         </button>
-        <span id="header-member-id" class="badge-member">LP1001</span>
       </div>
     </header>
 
@@ -86,7 +116,7 @@
         <div class="partner-welcome">
           <div>
             <h3>Hi, Partner!</h3>
-            <span class="text-sm text-gray" id="user-subtext">Member ID: LP1001</span>
+            <span class="text-sm text-gray" id="user-subtext"></span>
           </div>
           <div class="date-filter-box">
             <input type="date" id="dash-date-filter" onchange="onDashboardDateChange()">
@@ -98,14 +128,14 @@
             <div class="metric-icon green-icon"><i class="fa-solid fa-users"></i></div>
             <div class="metric-content">
               <span class="label">Membership</span>
-              <strong id="metric-membership">15</strong>
+              <strong id="metric-membership">0</strong>
             </div>
           </div>
           <div class="metric-card">
             <div class="metric-icon orange-icon"><i class="fa-solid fa-book-open"></i></div>
             <div class="metric-content">
               <span class="label">Smart Book</span>
-              <strong id="metric-smartbook">22</strong>
+              <strong id="metric-smartbook">0</strong>
             </div>
           </div>
         </div>
@@ -115,16 +145,24 @@
             <div class="metric-icon blue-icon"><i class="fa-solid fa-indian-rupee-sign"></i></div>
             <div class="metric-content">
               <span class="label">Paid Earning</span>
-              <strong id="metric-earnings">₹8,250</strong>
+              <strong id="metric-earnings">₹0</strong>
             </div>
           </div>
           <div class="metric-card earning-card">
-            <div class="metric-icon red-icon"><i class="fa-solid fa-wallet"></i></div>
+            <div class="metric-icon purple-icon"><i class="fa-solid fa-user-group"></i></div>
             <div class="metric-content">
-              <span class="label">Wallet Balance</span>
-              <strong id="metric-wallet">₹1,200</strong>
+              <span class="label">Total Customers</span>
+              <strong id="metric-total-customers">0</strong>
             </div>
           </div>
+        </div>
+
+        <div class="status-pills dash-status-pills">
+          <button class="pill active" id="dash-pill-All" onclick="goToCustomersWithStatus('All')">All (0)</button>
+          <button class="pill" id="dash-pill-New" onclick="goToCustomersWithStatus('New')">New (0)</button>
+          <button class="pill" id="dash-pill-Called" onclick="goToCustomersWithStatus('Called')">Called (0)</button>
+          <button class="pill" id="dash-pill-Interested" onclick="goToCustomersWithStatus('Interested')">Interested (0)</button>
+          <button class="pill" id="dash-pill-Joined" onclick="goToCustomersWithStatus('Joined')">Joined (0)</button>
         </div>
 
         <div class="dashboard-actions">
@@ -181,11 +219,11 @@
         </div>
 
         <div class="status-pills">
-          <button class="pill active" onclick="filterByStatus('All', this)">All</button>
-          <button class="pill" onclick="filterByStatus('New', this)">New</button>
-          <button class="pill" onclick="filterByStatus('Called', this)">Called</button>
-          <button class="pill" onclick="filterByStatus('Interested', this)">Interested</button>
-          <button class="pill" onclick="filterByStatus('Joined', this)">Joined</button>
+          <button class="pill active" id="pill-All" onclick="filterByStatus('All', this)">All (0)</button>
+          <button class="pill" id="pill-New" onclick="filterByStatus('New', this)">New (0)</button>
+          <button class="pill" id="pill-Called" onclick="filterByStatus('Called', this)">Called (0)</button>
+          <button class="pill" id="pill-Interested" onclick="filterByStatus('Interested', this)">Interested (0)</button>
+          <button class="pill" id="pill-Joined" onclick="filterByStatus('Joined', this)">Joined (0)</button>
         </div>
 
         <div id="customer-list-container" class="card-list"></div>
@@ -228,7 +266,7 @@
               <div class="tr-icon-col tr-icon-blue"><i class="fa-solid fa-video"></i></div>
               <div class="tr-content-col">
                 <h5 class="tr-item-title">Training Video</h5>
-                <p class="tr-item-desc">20 IT tutorial videos (30 mins each)</p>
+                <p class="tr-item-desc" id="hub-desc-video">Published tutorial videos</p>
               </div>
               <div class="tr-action-col"><div class="btn-play-circle-blue"><i class="fa-solid fa-play"></i></div></div>
             </div>
@@ -237,7 +275,7 @@
               <div class="tr-icon-col tr-icon-orange"><i class="fa-solid fa-file-lines"></i></div>
               <div class="tr-content-col">
                 <h5 class="tr-item-title">Sales Script</h5>
-                <p class="tr-item-desc">50 Notepad documents</p>
+                <p class="tr-item-desc" id="hub-desc-sales_script">Published sales scripts &amp; documents</p>
               </div>
               <div class="tr-action-col"><span class="badge-pill-orange">View</span></div>
             </div>
@@ -255,7 +293,7 @@
               <div class="tr-icon-col tr-icon-red"><i class="fa-solid fa-image"></i></div>
               <div class="tr-content-col">
                 <h5 class="tr-item-title">Poster</h5>
-                <p class="tr-item-desc">50 JPEG marketing posters</p>
+                <p class="tr-item-desc" id="hub-desc-poster">Published marketing posters</p>
               </div>
               <div class="tr-action-col"><div class="btn-download-circle-red"><i class="fa-solid fa-download"></i></div></div>
             </div>
@@ -264,7 +302,7 @@
               <div class="tr-icon-col tr-icon-green"><i class="fa-solid fa-book"></i></div>
               <div class="tr-content-col">
                 <h5 class="tr-item-title">Sample Smart Book</h5>
-                <p class="tr-item-desc">50 sample handbooks & PDFs</p>
+                <p class="tr-item-desc" id="hub-desc-smart_book">Published handbooks &amp; PDFs</p>
               </div>
               <div class="tr-action-col"><span class="badge-pill-green">View</span></div>
             </div>
@@ -282,7 +320,7 @@
         <div id="videos-list-container" class="resource-items-scroll"></div>
       </section>
 
-      <!-- SCREEN 4-B: SALES SCRIPTS (HEADINGS ONLY) -->
+      <!-- SCREEN 4-B: SALES SCRIPTS -->
       <section id="screen-training-scripts" class="sub-screen">
         <div class="subpage-header-bar">
           <button class="btn btn-secondary btn-sm" onclick="returnToTrainingHub()"><i class="fa-solid fa-arrow-left"></i> Back</button>
@@ -292,7 +330,7 @@
         <div id="scripts-list-container" class="resource-items-scroll"></div>
       </section>
 
-      <!-- SCREEN 4-C: FAQ PAGE (STRICT LANGUAGE ACCORDION) -->
+      <!-- SCREEN 4-C: FAQ PAGE -->
       <section id="screen-training-faq" class="sub-screen">
         <div class="subpage-header-bar">
           <button class="btn btn-secondary btn-sm" onclick="returnToTrainingHub()"><i class="fa-solid fa-arrow-left"></i> Back</button>
@@ -336,7 +374,6 @@
         <div class="profile-avatar-card">
           <div class="avatar-circle"><i class="fa-solid fa-user"></i></div>
           <h4 id="prof-name">Partner</h4>
-          <span class="text-sm text-gray" id="prof-member-id">Member ID: LP1001</span>
         </div>
 
         <div class="profile-details">
@@ -405,9 +442,9 @@
           </div>
         </div>
 
-        <div class="mb-3">
-          <button class="btn btn-primary btn-sm" onclick="openAdminUploadModal()">
-            <i class="fa-solid fa-cloud-arrow-up"></i> Upload Training Material
+        <div class="mb-3 admin-action-bar">
+          <button class="btn btn-primary btn-sm" onclick="openAdminMaterialsPage()">
+            <i class="fa-solid fa-folder-plus"></i> Manage Training Materials
           </button>
         </div>
 
@@ -440,7 +477,10 @@
             <span class="badge badge-success" id="team-uploaded-count">Uploaded: 0</span>
             <span class="badge badge-warning" id="team-pending-count">Pending: 0</span>
           </div>
-          <button class="btn btn-outline btn-sm" onclick="loadAdminTeam()"><i class="fa-solid fa-rotate"></i> Refresh</button>
+          <div class="admin-action-bar">
+            <button class="btn btn-primary btn-sm" onclick="openAdminMaterialsPage()"><i class="fa-solid fa-folder-plus"></i> Training Materials</button>
+            <button class="btn btn-outline btn-sm" onclick="loadAdminTeam()"><i class="fa-solid fa-rotate"></i> Refresh</button>
+          </div>
         </div>
 
         <div class="team-table-wrap">
@@ -461,6 +501,89 @@
               <tr><td colspan="8" class="team-empty">Loading team members...</td></tr>
             </tbody>
           </table>
+        </div>
+      </section>
+
+      <!-- SCREEN 10: ADMIN TRAINING MATERIAL MANAGEMENT (4 SEPARATE SECTIONS) -->
+      <section id="screen-admin-materials" class="sub-screen">
+        <div class="admin-mat-topbar">
+          <button class="btn btn-secondary btn-sm" onclick="openAdminTeamPage()"><i class="fa-solid fa-arrow-left"></i> Admin Dashboard</button>
+          <select id="admin-mat-lang-filter" class="admin-mat-lang-select" onchange="loadAdminMaterials()">
+            <option value="all">All Languages</option>
+            <option value="English">English</option>
+            <option value="Tamil">Tamil</option>
+            <option value="Telugu">Telugu</option>
+            <option value="Hindi">Hindi</option>
+            <option value="Kannada">Kannada</option>
+          </select>
+        </div>
+
+        <!-- Section 1: Training Videos -->
+        <div class="admin-mat-section">
+          <div class="admin-mat-section-head">
+            <div class="admin-mat-title-wrap">
+              <div class="tr-icon-col tr-icon-blue"><i class="fa-solid fa-video"></i></div>
+              <div>
+                <h5>1. Training Videos</h5>
+                <small class="text-gray">MP4, WEBM, MOV, M4V, AVI, MKV or Video Link</small>
+              </div>
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="openAdminMaterialModal('video')">
+              <i class="fa-solid fa-plus"></i> Upload Video
+            </button>
+          </div>
+          <div id="admin-mat-list-video" class="admin-mat-list"></div>
+        </div>
+
+        <!-- Section 2: Sales Scripts -->
+        <div class="admin-mat-section">
+          <div class="admin-mat-section-head">
+            <div class="admin-mat-title-wrap">
+              <div class="tr-icon-col tr-icon-orange"><i class="fa-solid fa-file-lines"></i></div>
+              <div>
+                <h5>2. Sales Scripts</h5>
+                <small class="text-gray">Script Text and/or TXT, PDF, DOC, DOCX, RTF, ODT</small>
+              </div>
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="openAdminMaterialModal('sales_script')">
+              <i class="fa-solid fa-plus"></i> Add Script
+            </button>
+          </div>
+          <div id="admin-mat-list-sales_script" class="admin-mat-list"></div>
+        </div>
+
+        <!-- Section 3: Posters -->
+        <div class="admin-mat-section">
+          <div class="admin-mat-section-head">
+            <div class="admin-mat-title-wrap">
+              <div class="tr-icon-col tr-icon-red"><i class="fa-solid fa-image"></i></div>
+              <div>
+                <h5>3. Posters</h5>
+                <small class="text-gray">PNG, JPG, JPEG, GIF, WEBP (up to 10 MB)</small>
+              </div>
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="openAdminMaterialModal('poster')">
+              <i class="fa-solid fa-plus"></i> Upload Poster
+            </button>
+          </div>
+          <div id="admin-mat-list-poster" class="admin-mat-list"></div>
+        </div>
+
+        <!-- Section 4: Sample Smart Books -->
+        <div class="admin-mat-section">
+          <div class="admin-mat-section-head">
+            <div class="admin-mat-title-wrap">
+              <div class="tr-icon-col tr-icon-green"><i class="fa-solid fa-book"></i></div>
+              <div>
+                <h5>4. Sample Smart Books</h5>
+                <small class="text-gray">PDF, XLS, XLSX, CSV, DOC, DOCX, PPT, PPTX, ZIP</small>
+              </div>
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="openAdminMaterialModal('smart_book')">
+              <i class="fa-solid fa-plus"></i> Upload Smart Book
+            </button>
+          </div>
+          <div id="admin-mat-list-smart_book" class="admin-mat-list"></div>
         </div>
       </section>
     </main>
@@ -560,7 +683,7 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick="backToAddCustomerModal()">Back</button>
-        <button class="btn btn-primary" onclick="confirmPaymentAndSaveCustomer()">Confirm & Submit</button>
+        <button id="btn-confirm-save-customer" class="btn btn-primary" onclick="confirmPaymentAndSaveCustomer()">Confirm & Submit</button>
       </div>
     </div>
   </div>
@@ -616,17 +739,17 @@
   <div id="modal-admin-upload" class="modal-backdrop hidden">
     <div class="modal-card">
       <div class="modal-header">
-        <h4>Upload Training Resource</h4>
+        <h4 id="adm-mat-modal-title">Upload Training Material</h4>
         <button class="btn-close" onclick="closeModal('modal-admin-upload')">&times;</button>
       </div>
       <div class="modal-body">
         <form id="admin-material-form" onsubmit="submitAdminMaterial(event)">
+          <input type="hidden" id="adm-mat-id" value="">
           <div class="form-group">
             <label>Resource Category *</label>
-            <select id="adm-mat-cat" required>
+            <select id="adm-mat-cat" required onchange="onAdminMaterialCategoryChange()">
               <option value="video">Training Video</option>
               <option value="sales_script">Sales Script</option>
-              <option value="faq">FAQ</option>
               <option value="poster">Poster</option>
               <option value="smart_book">Sample Smart Book</option>
             </select>
@@ -643,21 +766,30 @@
           </div>
           <div class="form-group">
             <label>Title / Heading *</label>
-            <input type="text" id="adm-mat-title" placeholder="e.g. Script 51 – Closing Call" required>
+            <input type="text" id="adm-mat-title" placeholder="Enter material title" maxlength="200" required>
           </div>
           <div class="form-group">
             <label>Description / Subtitle</label>
-            <input type="text" id="adm-mat-desc" placeholder="e.g. Pitch Script">
+            <input type="text" id="adm-mat-desc" placeholder="Enter short description" maxlength="500">
+          </div>
+          <div class="form-group" id="adm-mat-content-group">
+            <label id="adm-mat-content-label">Content / Link</label>
+            <textarea id="adm-mat-content" rows="4" placeholder="Enter content or video link..."></textarea>
           </div>
           <div class="form-group">
-            <label>Content</label>
-            <textarea id="adm-mat-content" rows="4" placeholder="Enter content lines..."></textarea>
-          </div>
-          <div class="form-group">
-            <label>Attach File</label>
+            <label id="adm-mat-file-label">Upload File</label>
             <input type="file" id="adm-mat-file">
+            <small id="adm-mat-file-hint" class="text-sm text-gray"></small>
+            <div id="adm-mat-current-file" class="text-sm text-gray mt-2 hidden"></div>
           </div>
-          <button type="submit" class="btn btn-primary w-100">Publish Material</button>
+          <div class="form-group admin-publish-check">
+            <label class="checkbox-inline-label">
+              <input type="checkbox" id="adm-mat-active" checked>
+              <span>Published (visible to users)</span>
+            </label>
+          </div>
+          <div id="adm-mat-error" class="team-upload-result"></div>
+          <button type="submit" id="adm-mat-submit-btn" class="btn btn-primary w-100">Publish Material</button>
         </form>
       </div>
     </div>

@@ -40,10 +40,19 @@ DB_PATH = os.path.join(BASE_DIR, 'database.db')
 # -------------------------------------------------------------
 PRIVATE_UPLOAD_ROOT = os.path.join(BASE_DIR, 'private_uploads')
 os.makedirs(PRIVATE_UPLOAD_ROOT, exist_ok=True)
+
+# -------------------------------------------------------------
+# PRIVATE TRAINING MATERIAL FILE STORAGE (ADMIN UPLOADS -> TRAINING & RESOURCES)
+# Stored outside /static so unpublished/deleted items are never accessible by URL.
+# -------------------------------------------------------------
+TRAINING_UPLOAD_ROOT = os.path.join(BASE_DIR, 'private_training_uploads')
+os.makedirs(TRAINING_UPLOAD_ROOT, exist_ok=True)
+
 MAX_REPORT_FILE_SIZE = 50 * 1024 * 1024          # 50 MB per file
 app.config['MAX_CONTENT_LENGTH'] = 600 * 1024 * 1024   # 600 MB per request (the browser sends small batches)
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['PERMANENT_SESSION_LIFETIME'] = datetime.timedelta(days=7)
 SHARE_LINK_MAX_AGE_SECONDS = 7 * 24 * 60 * 60    # shared links stay valid for 7 days
 share_serializer = URLSafeTimedSerializer(app.secret_key, salt='rk-report-share-link')
 
@@ -55,6 +64,32 @@ ALLOWED_REPORT_EXTENSIONS = {
     'zip', 'rar', '7z', 'json', 'xml'
 }
 
+TRAINING_LANGUAGES = ('English', 'Tamil', 'Telugu', 'Hindi', 'Kannada')
+TRAINING_CATEGORY_RULES = {
+    'video': {
+        'label': 'Training Videos',
+        'extensions': {'mp4', 'webm', 'mov', 'm4v', 'avi', 'mkv'},
+        'max_size': 200 * 1024 * 1024,
+    },
+    'sales_script': {
+        'label': 'Sales Scripts',
+        'extensions': {'txt', 'pdf', 'doc', 'docx', 'rtf', 'odt'},
+        'max_size': 50 * 1024 * 1024,
+    },
+    'poster': {
+        'label': 'Posters',
+        'extensions': {'png', 'jpg', 'jpeg', 'gif', 'webp'},
+        'max_size': 10 * 1024 * 1024,
+    },
+    'smart_book': {
+        'label': 'Sample Smart Books',
+        'extensions': {'pdf', 'xls', 'xlsx', 'xlsm', 'csv', 'ods', 'doc', 'docx', 'ppt', 'pptx', 'zip', 'txt'},
+        'max_size': 50 * 1024 * 1024,
+    },
+}
+
+VALID_CUSTOMER_STATUSES = ('New', 'Called', 'Interested', 'Joined')
+
 def classify_file_type(ext: str) -> str:
     ext = (ext or '').lower()
     if ext == 'pdf': return 'pdf'
@@ -62,12 +97,13 @@ def classify_file_type(ext: str) -> str:
     if ext in ('doc', 'docx', 'rtf', 'odt'): return 'word'
     if ext in ('ppt', 'pptx'): return 'ppt'
     if ext in ('png', 'jpg', 'jpeg', 'gif', 'webp'): return 'image'
+    if ext in ('mp4', 'webm', 'mov', 'm4v', 'avi', 'mkv'): return 'video'
     if ext in ('zip', 'rar', '7z'): return 'zip'
     if ext in ('txt', 'json', 'xml'): return 'text'
     return 'other'
 
 def content_matches_extension(ext: str, head: bytes) -> bool:
-    """Light magic-byte check so a renamed file cannot masquerade as a PDF/Office/image file."""
+    """Light magic-byte check so a renamed file cannot masquerade as a PDF/Office/image/video file."""
     ext = (ext or '').lower()
     if ext == 'pdf': return head.startswith(b'%PDF')
     if ext in ('xlsx', 'xlsm', 'docx', 'pptx', 'zip', 'odt', 'ods'): return head.startswith(b'PK')
@@ -75,6 +111,8 @@ def content_matches_extension(ext: str, head: bytes) -> bool:
     if ext in ('jpg', 'jpeg'): return head.startswith(b'\xff\xd8')
     if ext == 'gif': return head[:4] == b'GIF8'
     if ext == 'webp': return head[:4] == b'RIFF' and head[8:12] == b'WEBP'
+    if ext in ('mp4', 'mov', 'm4v'): return len(head) >= 8 and head[4:8] == b'ftyp'
+    if ext in ('webm', 'mkv'): return head.startswith(b'\x1a\x45\xdf\xa3')
     return True
 
 def clean_display_path(raw_path: str, fallback_name: str) -> str:
@@ -94,13 +132,23 @@ def clean_display_path(raw_path: str, fallback_name: str) -> str:
         parts = [re.sub(r'[\x00-\x1f\x7f/\\]', '', fallback_name or 'file').strip()[:200] or 'file']
     return '/'.join(parts[:12])
 
-def resolve_private_path(stored_rel_path: str):
-    """Resolves a stored relative path and guarantees it stays inside PRIVATE_UPLOAD_ROOT."""
-    root = os.path.realpath(PRIVATE_UPLOAD_ROOT)
+def resolve_private_path(stored_rel_path: str, root_dir: str = PRIVATE_UPLOAD_ROOT):
+    """Resolves a stored relative path and guarantees it stays inside root_dir."""
+    root = os.path.realpath(root_dir)
     full = os.path.realpath(os.path.join(root, stored_rel_path or ''))
     if full != root and not full.startswith(root + os.sep):
         return None
     return full if os.path.isfile(full) else None
+
+def delete_training_file(stored_rel_path: str):
+    if not stored_rel_path:
+        return
+    full = resolve_private_path(stored_rel_path, TRAINING_UPLOAD_ROOT)
+    if full:
+        try:
+            os.remove(full)
+        except OSError:
+            pass
 
 def delete_banner_image_file(image_url):
     """Removes an uploaded advertisement image from disk (external http(s) image URLs are left alone)."""
@@ -115,6 +163,15 @@ def delete_banner_image_file(image_url):
 def clean_action_url(raw):
     raw = (raw or '').strip()
     return raw if re.match(r'^https?://', raw, re.I) else ''
+
+def compute_status_counts(rows):
+    counts = {'All': len(rows), 'New': 0, 'Called': 0, 'Interested': 0, 'Joined': 0}
+    for r in rows:
+        key = (r['status'] or '').strip().lower()
+        for label in VALID_CUSTOMER_STATUSES:
+            if key == label.lower():
+                counts[label] += 1
+    return counts
 
 # -------------------------------------------------------------
 # AUTOMATIC CUSTOMER REPORTS (1 PDF + 4 EXCEL FILES PER CUSTOMER)
@@ -251,7 +308,7 @@ def generate_customer_reports(db, customer_id):
                 ("Customers", ['Registration Date', 'Customer ID', 'Customer Name', 'Phone Number', 'Plan', 'Lead Status'],
                  [[str(r['created_date'] or ''), r['customer_id'], r['name'], r['phone'], r['plan_name'], r['status']] for r in owned]),
                 ("Status Summary", ['Lead Status', 'Customers'],
-                 [[st, sum(1 for r in owned if (r['status'] or '') == st)] for st in ('New', 'Called', 'Interested', 'Joined')]
+                 [[st, sum(1 for r in owned if (r['status'] or '') == st)] for st in VALID_CUSTOMER_STATUSES]
                  + [['Total', len(owned)]])])),
         ]
 
@@ -305,7 +362,7 @@ def generate_customer_reports(db, customer_id):
 def backfill_customer_reports():
     """On start-up: make sure every existing customer already has its automatic report set."""
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(DB_PATH, timeout=15)
         conn.row_factory = sqlite3.Row
         missing = conn.execute('''SELECT c.customer_id FROM customers c
                                   WHERE NOT EXISTS (SELECT 1 FROM member_files f
@@ -320,13 +377,10 @@ def backfill_customer_reports():
 # -------------------------------------------------------------
 # REAL BREVO FREE PLAN API INTEGRATION (PRE-CONFIGURED)
 # -------------------------------------------------------------
-BREVO_API_KEY = os.environ.get(
-    "BREVO_API_KEY", 
-    "REDACTED_BREVO_KEY"
-)
+BREVO_API_KEY = os.environ.get("BREVO_API_KEY")
 BREVO_SENDER_EMAIL = os.environ.get("BREVO_SENDER_EMAIL", "varsha.thirumal21@gmail.com")
 BREVO_SENDER_NAME = os.environ.get("BREVO_SENDER_NAME", "RK Solutions")
-ADMIN_DESIGNATED_EMAIL = "sun.rksolution@gmail.com"
+ADMIN_DESIGNATED_EMAIL = "varsha.thirumal21@gmail.com"
 MAX_DAILY_FREE_EMAILS = 300
 
 def hash_otp(otp_code: str) -> str:
@@ -420,7 +474,6 @@ def send_brevo_email_otp(recipient_email: str, otp_code: str) -> tuple:
             return True, "OTP successfully delivered to your email inbox."
         else:
             err_msg = res_data.get("message", "Delivery notice.")
-            # If sender domain in Brevo account needs confirmation, log and return code
             if "unauthenticated" in str(err_msg).lower() or "sender" in str(err_msg).lower():
                 return True, f"Verification code delivered! Code: {otp_code}"
             return True, f"Verification code: {otp_code} ({err_msg})"
@@ -433,7 +486,7 @@ def send_brevo_email_otp(recipient_email: str, otp_code: str) -> tuple:
 # -------------------------------------------------------------
 def get_db():
     if 'db' not in g:
-        g.db = sqlite3.connect(DB_PATH)
+        g.db = sqlite3.connect(DB_PATH, timeout=15)
         g.db.row_factory = sqlite3.Row
     return g.db
 
@@ -470,7 +523,7 @@ def generate_next_customer_id():
     return f"{year}-{str(new_seq).zfill(5)}"
 
 def init_db():
-    with sqlite3.connect(DB_PATH) as conn:
+    with sqlite3.connect(DB_PATH, timeout=15) as conn:
         c = conn.cursor()
         
         # 1. Base Users Table
@@ -490,9 +543,6 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )''')
 
-        # ---------------------------------------------------------
-        # SAFE COLUMN MIGRATIONS (USERS TABLE)
-        # ---------------------------------------------------------
         c.execute("PRAGMA table_info(users)")
         user_cols = [row[1] for row in c.fetchall()]
         if 'email' not in user_cols:
@@ -500,12 +550,6 @@ def init_db():
         if 'account_status' not in user_cols:
             c.execute("ALTER TABLE users ADD COLUMN account_status TEXT DEFAULT 'active'")
 
-        # ---------------------------------------------------------
-        # CRITICAL FIX: OLD DATABASES HAVE 'phone TEXT UNIQUE NOT NULL'
-        # on the users table, which blocks every new email-only user
-        # ("NOT NULL constraint failed: users.phone"). Rebuild the table
-        # once so phone becomes optional. All existing rows are kept.
-        # ---------------------------------------------------------
         c.execute("PRAGMA table_info(users)")
         phone_info = [row for row in c.fetchall() if row[1] == 'phone']
         phone_is_required = bool(phone_info) and phone_info[0][3] == 1
@@ -546,7 +590,7 @@ def init_db():
             emails_sent INTEGER DEFAULT 0
         )''')
 
-        # 3. OTP Codes Table (With dynamic migration for 'identifier')
+        # 3. OTP Codes Table
         c.execute('''CREATE TABLE IF NOT EXISTS otp_codes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             identifier TEXT,
@@ -559,9 +603,6 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )''')
 
-        # ---------------------------------------------------------
-        # CRITICAL FIX: SAFE COLUMN MIGRATION FOR 'otp_codes'
-        # ---------------------------------------------------------
         c.execute("PRAGMA table_info(otp_codes)")
         otp_cols = [row[1] for row in c.fetchall()]
         if 'identifier' not in otp_cols:
@@ -569,7 +610,6 @@ def init_db():
         if 'otp_hash' not in otp_cols:
             c.execute("ALTER TABLE otp_codes ADD COLUMN otp_hash TEXT")
         if 'created_at' not in otp_cols:
-            # SQLite cannot add a column with a non-constant default, so add it plain and back-fill.
             c.execute("ALTER TABLE otp_codes ADD COLUMN created_at TIMESTAMP")
             c.execute("UPDATE otp_codes SET created_at = datetime('now', 'localtime') WHERE created_at IS NULL")
 
@@ -599,7 +639,6 @@ def init_db():
         if 'location' not in cust_cols:
             c.execute("ALTER TABLE customers ADD COLUMN location TEXT")
         if 'updated_at' not in cust_cols:
-            # Older databases never had this column, which made "Edit Customer Status" fail with a server error.
             c.execute("ALTER TABLE customers ADD COLUMN updated_at TIMESTAMP")
             c.execute("UPDATE customers SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL")
 
@@ -623,7 +662,7 @@ def init_db():
         if 'upload_status' not in order_cols:
             c.execute("ALTER TABLE orders ADD COLUMN upload_status TEXT DEFAULT 'Pending'")
 
-        # 6. Materials Table
+        # 6. Materials Table (with private file metadata & duplicate-prevention hash)
         c.execute('''CREATE TABLE IF NOT EXISTS materials (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             category TEXT NOT NULL,
@@ -632,9 +671,16 @@ def init_db():
             description TEXT,
             content TEXT,
             file_url TEXT,
+            stored_path TEXT,
+            original_filename TEXT,
+            file_ext TEXT,
+            mime_type TEXT,
+            size_bytes INTEGER DEFAULT 0,
+            file_hash TEXT,
             sort_order INTEGER DEFAULT 1,
             is_active INTEGER DEFAULT 1,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )''')
 
         c.execute("PRAGMA table_info(materials)")
@@ -643,8 +689,24 @@ def init_db():
             c.execute("ALTER TABLE materials ADD COLUMN sort_order INTEGER DEFAULT 1")
         if 'is_active' not in mat_cols:
             c.execute("ALTER TABLE materials ADD COLUMN is_active INTEGER DEFAULT 1")
+        if 'stored_path' not in mat_cols:
+            c.execute("ALTER TABLE materials ADD COLUMN stored_path TEXT")
+        if 'original_filename' not in mat_cols:
+            c.execute("ALTER TABLE materials ADD COLUMN original_filename TEXT")
+        if 'file_ext' not in mat_cols:
+            c.execute("ALTER TABLE materials ADD COLUMN file_ext TEXT")
+        if 'mime_type' not in mat_cols:
+            c.execute("ALTER TABLE materials ADD COLUMN mime_type TEXT")
+        if 'size_bytes' not in mat_cols:
+            c.execute("ALTER TABLE materials ADD COLUMN size_bytes INTEGER DEFAULT 0")
+        if 'file_hash' not in mat_cols:
+            c.execute("ALTER TABLE materials ADD COLUMN file_hash TEXT")
+        if 'updated_at' not in mat_cols:
+            c.execute("ALTER TABLE materials ADD COLUMN updated_at TIMESTAMP")
+            c.execute("UPDATE materials SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_materials_cat_lang ON materials(category, language, is_active)")
 
-        # 6b. Member Files Table (files/folders uploaded by admin for each team member)
+        # 6b. Member Files Table
         c.execute('''CREATE TABLE IF NOT EXISTS member_files (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
@@ -663,7 +725,6 @@ def init_db():
             source TEXT DEFAULT 'admin_upload',
             FOREIGN KEY (user_id) REFERENCES users(id)
         )''')
-        # 'admin_upload' = files the admin uploaded for a member, 'auto' = reports generated from customer data
         c.execute("PRAGMA table_info(member_files)")
         mf_cols = [row[1] for row in c.fetchall()]
         if 'source' not in mf_cols:
@@ -681,7 +742,6 @@ def init_db():
             is_active INTEGER DEFAULT 1
         )''')
 
-        # Admin-managed advertisement slots (1..3) + a tiny settings table
         c.execute("PRAGMA table_info(banners)")
         banner_cols = [row[1] for row in c.fetchall()]
         if 'slot' not in banner_cols:
@@ -690,7 +750,6 @@ def init_db():
             key TEXT PRIMARY KEY,
             value TEXT
         )''')
-        # Existing banners keep their current on-screen order (newest first) and get slots 1..3.
         c.execute("SELECT slot FROM banners WHERE slot IS NOT NULL")
         used_slots = {row[0] for row in c.fetchall()}
         free_slots = [sl for sl in BANNER_SLOTS if sl not in used_slots]
@@ -703,41 +762,43 @@ def init_db():
         c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_banners_slot ON banners(slot) WHERE slot IS NOT NULL")
 
         # -------------------------------------------------------------
-        # ADMIN SEEDING & RESOLUTION OF REF-ADMIN
+        # DESIGNATED SINGLE ADMIN SEEDING & ENFORCEMENT (varsha.thirumal21@gmail.com)
+        # Ensures ONLY varsha.thirumal21@gmail.com holds the Admin role; any previous admin
+        # account is cleanly demoted to partner without breaking unique member_id constraints.
         # -------------------------------------------------------------
-        c.execute("SELECT id FROM users WHERE member_id = 'ADMIN01' OR referral_code = 'REF-ADMIN'")
-        existing_admin_row = c.fetchone()
+        c.execute("SELECT id FROM users WHERE LOWER(email) = ?", (ADMIN_DESIGNATED_EMAIL,))
+        designated_row = c.fetchone()
 
-        if existing_admin_row:
-            c.execute('''UPDATE users 
-                         SET email = ?, name = 'RK Admin', role = 'admin', 
+        # Temporarily clear ADMIN01 / REF-ADMIN from any non-designated account
+        c.execute("SELECT id FROM users WHERE (role = 'admin' OR member_id = 'ADMIN01' OR referral_code = 'REF-ADMIN') AND LOWER(COALESCE(email, '')) != ?",
+                  (ADMIN_DESIGNATED_EMAIL,))
+        old_admins = c.fetchall()
+        for (old_id,) in old_admins:
+            tmp = f"DEMOTE_{old_id}"
+            c.execute("UPDATE users SET role = 'partner', member_id = ?, referral_code = ? WHERE id = ?",
+                      (tmp, f"REF-{tmp}", old_id))
+
+        if designated_row:
+            c.execute('''UPDATE users
+                         SET email = ?, name = 'RK Admin', role = 'admin',
                              member_id = 'ADMIN01', referral_code = 'REF-ADMIN', account_status = 'active'
-                         WHERE id = ?''', (ADMIN_DESIGNATED_EMAIL, existing_admin_row[0]))
+                         WHERE id = ?''', (ADMIN_DESIGNATED_EMAIL, designated_row[0]))
         else:
-            c.execute("SELECT id FROM users WHERE email = ?", (ADMIN_DESIGNATED_EMAIL,))
-            email_row = c.fetchone()
-            if email_row:
-                c.execute('''UPDATE users 
-                             SET name = 'RK Admin', role = 'admin', member_id = 'ADMIN01', 
-                                 referral_code = 'REF-ADMIN', account_status = 'active'
-                             WHERE id = ?''', (email_row[0],))
-            else:
-                c.execute('''INSERT INTO users (name, email, phone, password_hash, city, member_id, role, account_status, referral_code)
-                             VALUES ('RK Admin', ?, '8220789043', ?, 'Chennai', 'ADMIN01', 'admin', 'active', 'REF-ADMIN')''',
-                          (ADMIN_DESIGNATED_EMAIL, generate_password_hash('admin123')))
+            c.execute('''INSERT INTO users (name, email, phone, password_hash, city, member_id, role, account_status, referral_code)
+                         VALUES ('RK Admin', ?, NULL, ?, 'Chennai', 'ADMIN01', 'admin', 'active', 'REF-ADMIN')''',
+                      (ADMIN_DESIGNATED_EMAIL, generate_password_hash('admin123')))
 
         # Sequential IDs for partners
         c.execute("SELECT id FROM users WHERE role != 'admin' ORDER BY id ASC")
         partners = c.fetchall()
-        for idx, p in enumerate(partners):
+        for p in partners:
             temp_id = f"TEMP_{p[0]}"
             c.execute("UPDATE users SET member_id = ?, referral_code = ? WHERE id = ?", (temp_id, f"REF-{temp_id}", p[0]))
         for idx, p in enumerate(partners):
             p_id = f"LP{1001 + idx}"
             c.execute("UPDATE users SET member_id = ?, referral_code = ? WHERE id = ?", (p_id, f"REF-{p_id}", p[0]))
 
-        # Seed the three starter banners ONCE. After that the admin owns them, so deleting
-        # banners (or restarting the app) never brings the demo banners back.
+        # Seed starter banners ONCE
         c.execute("SELECT value FROM app_settings WHERE key = 'banners_seeded'")
         banners_already_seeded = c.fetchone() is not None
         c.execute("SELECT COUNT(*) FROM banners")
@@ -762,219 +823,84 @@ def init_db():
                          VALUES (1, '2026-00001', 'Smart Book', 300.0, 'Processed', 'Completed', 1)''')
 
         # -------------------------------------------------------------
-        # SEED STRUCTURED TRAINING CONTENT FOR ALL 5 LANGUAGES
+        # ONE-TIME CLEANUP OF LEGACY HARDCODED TRAINING MATERIAL DUMMIES
+        # Training materials in the 4 managed categories (video, sales_script, poster, smart_book)
+        # now come strictly from Admin Panel CRUD stored in SQLite (no hardcoded records).
         # -------------------------------------------------------------
-        languages = ['English', 'Tamil', 'Telugu', 'Hindi', 'Kannada']
-        
-        tutorial_videos = [
-            "https://www.youtube.com/watch?v=2VWGOQTdXAw",
-            "https://www.youtube.com/watch?v=kqtD5dpn9C8",
-            "https://www.youtube.com/watch?v=rfscVS0vtbw",
-            "https://www.youtube.com/watch?v=zOjov-2OZ0E",
-            "https://www.youtube.com/watch?v=PkZNo7MFNFg"
-        ]
+        c.execute("SELECT value FROM app_settings WHERE key = 'legacy_dummy_materials_purged_v1'")
+        if c.fetchone() is None:
+            c.execute('''DELETE FROM materials
+                         WHERE stored_path IS NULL AND (
+                             (category = 'sales_script' AND description = 'High-conversion pitch script')
+                             OR (category = 'video' AND description = '30 mins comprehensive module')
+                             OR (category = 'poster' AND description = 'High resolution flyer')
+                             OR (category = 'smart_book' AND description IN ('Official PDF material', 'Official XLSX material'))
+                         )''')
+            c.execute("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('legacy_dummy_materials_purged_v1', '1')")
 
-        poster_images = [
-            "https://images.unsplash.com/photo-1557804506-669a67965ba0?w=600",
-            "https://images.unsplash.com/photo-1517245386807-bb43f82c33c4?w=600",
-            "https://images.unsplash.com/photo-1559526324-4b87b5e36e44?w=600",
-            "https://images.unsplash.com/photo-1434030216411-0b793f4b4173?w=600",
-            "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=600"
-        ]
-
-        lang_script_data = {
-            'English': [
-                ("Customer Introduction", [
-                    "Hello! Would you like to know about our Smart Book rank-boosting service?",
-                    "We provide all key competitive exam insights and complete syllabus frameworks.",
-                    "Contact us right away to accelerate your coaching results!"
-                ]),
-                ("Product Explanation", [
-                    "First, identify your student enrollment target and competitive needs.",
-                    "Demonstrate the key advantages of our verified Smart Book material.",
-                    "Show how coaching institutes rank 3x higher using our keyword strategies."
-                ]),
-                ("Membership Benefits", [
-                    "Guaranteed access to verified syllabus modules and video breakdowns.",
-                    "Instant weekly affiliate payouts directly transferred via UPI.",
-                    "Dedicated support team available 24/7 for report customisation."
-                ])
-            ],
-            'Tamil': [
-                ("வாடிக்கையாளர் அறிமுகம் (Customer Introduction)", [
-                    "வணக்கம்! எங்கள் Smart Book சேவையைப் பற்றி தெரிந்துகொள்ள விரும்புகிறீர்களா?",
-                    "உங்களுக்கு தேவையான அனைத்து விவரங்களையும் உடனுக்குடன் வழங்குகிறோம்.",
-                    "மேலும் விரிவான விவரங்களுக்கு உடனடியாக எங்களைத் தொடர்பு கொள்ளுங்கள்."
-                ]),
-                ("பொருளின் விளக்கம் (Product Explanation)", [
-                    "வாடிக்கையாளரின் கல்வித் தேவையை முதலில் தெளிவாக அறிந்து கொள்ளுங்கள்.",
-                    "Smart Book தொகுப்பின் முக்கிய போட்டித் தேர்வு சிறப்பம்சங்களை விளக்குங்கள்.",
-                    "எங்கள் குறிச்சொற்களைப் பயன்படுத்தி 3 மடங்கு அதிக மாணவர் சேர்க்கையைப் பெறுங்கள்."
-                ]),
-                ("உறுப்பினர் நன்மைகள் (Membership Benefits)", [
-                    "அனைத்து பிராந்திய மொழி கையேடுகள் மற்றும் மாதிரி தாள்களுக்கான முழு அணுகல்.",
-                    "நேரடி UPI மூலம் எவ்வித பிடித்தமும் இன்றி வாராந்திர வருமானம் பெறுங்கள்.",
-                    "எங்கள் குழுவினரின் உடனடி வாடிக்கையாளர் சேவை ஆதரவு."
-                ])
-            ],
-            'Telugu': [
-                ("కస్టమర్ పరిచయం (Customer Introduction)", [
-                    "నమస్కారం! మా Smart Book సేవల గురించి తెలుసుకోవాలనుకుంటున్నారా?",
-                    "మీకు అవసరమైన పూర్తి పోటీ పరీక్షా విశ్లేషణను మేము అందిస్తాము.",
-                    "మరిన్ని పూర్తి వివరాల కోసం వెంటనే మమ్మల్ని సంప్రదించండి."
-                ]),
-                ("ఉత్పత్తి వివరణ (Product Explanation)", [
-                    "ముందుగా మీ విద్యార్థుల పరీక్షా అవసరాలను గుర్తించండి.",
-                    "Smart Book ప్రత్యేక ఫీచర్లు మరియు విశ్లేషణ పద్ధతులను వివరించండి.",
-                    "మా కీవర్డ్ పద్ధతులతో మీ కోచింగ్ సెంటర్ అడ్మిషన్లను 3 రెట్లు పెంచుకోండి."
-                ]),
-                ("సభ్యత్వ ప్రయోజనాలు (Membership Benefits)", [
-                    "ధృవీకరించబడిన స్టడీ మెటీరియల్స్ మరియు వీడియో గైడ్స్ తక్షణ యాక్సెస్.",
-                    "UPI ద్వారా ఎటువంటి జాప్యం లేకుండా వేగవంతమైన వాలెట్ ఉపసంహరణలు.",
-                    "24/7 నిరంతర కస్టమర్ కేర్ మరియు రిపోర్ట్ మద్దతు."
-                ])
-            ],
-            'Hindi': [
-                ("ग्राहक परिचय (Customer Introduction)", [
-                    "नमस्ते! क्या आप हमारी Smart Book सेवा के बारे में जानना चाहते हैं?",
-                    "हम आपको सभी प्रतियोगी परीक्षाओं के लिए सटीक विश्लेषण प्रदान करते हैं।",
-                    "अधिक जानकारी और तुरंत शुरुआत के लिए हमसे संपर्क करें।"
-                ]),
-                ("उत्पाद विवरण (Product Explanation)", [
-                    "सर्वप्रथम ग्राहक एवं संस्थान की आवश्यकताओं को समझें।",
-                    "Smart Book की मुख्य विशेषताओं और पाठ्यक्रम रूपरेखा का वर्णन करें।",
-                    "हमारे कीवर्ड मैट्रिक्स से कोचिंग प्रवेश में 3 गुना वृद्धि प्राप्त करें।"
-                ]),
-                ("सदस्यता लाभ (Membership Benefits)", [
-                    "सभी क्षेत्रीय भाषाओं में संपूर्ण सामग्री एवं वीडियो गाइड की सीधी पहुंच।",
-                    "बिना किसी कटौती के सीधे UPI द्वारा त्वरित साप्ताहिक भुगतान।",
-                    "समर्पित सहायता टीम द्वारा 24/7 निरंतर सेवा।"
-                ])
-            ],
-            'Kannada': [
-                ("ಗ್ರಾಹಕರ ಪರಿಚಯ (Customer Introduction)", [
-                    "ನಮಸ್ಕಾರ! ನಮ್ಮ Smart Book ಸೇವೆಗಳ ಬಗ್ಗೆ ತಿಳಿದುಕೊಳ್ಳಲು ಬಯಸುವಿರಾ?",
-                    "ನಿಮಗೆ ಅಗತ್ಯವಿರುವ ಎಲ್ಲಾ ಪರೀಕ್ಷಾ ಮಾರ್ಗದರ್ಶನ ಮತ್ತು ವಿವರಗಳನ್ನು ನೀಡುತ್ತೇವೆ.",
-                    "ಹೆಚ್ಚಿನ ಮಾಹಿತಿಗಾಗಿ ಇಂದೇ ನಮ್ಮನ್ನು ಸಂಪರ್ಕಿಸಿ."
-                ]),
-                ("ಉತ್ಪನ್ನ ವಿವರಣೆ (Product Explanation)", [
-                    "ಮೊದಲಿಗೆ ವಿದ್ಯಾರ್ಥಿಗಳ ಮತ್ತು ಸಂಸ್ಥೆಯ ಅಗತ್ಯಗಳನ್ನು ಗುರುತಿಸಿ.",
-                    "Smart Book ನ ಪ್ರಮುಖ ವೈಶಿಷ್ಟ್ಯಗಳು ಮತ್ತು ಅಧ್ಯಯನ ಸೂತ್ರಗಳನ್ನು ವಿವರಿಸಿ.",
-                    "ನಮ್ಮ ಕೀವರ್ಡ್ ವಿಧಾನಗಳಿಂದ ಕೋಚಿಂಗ್ ದಾಖಲಾತಿಯನ್ನು 3 ಪಟ್ಟು ಹೆಚ್ಚಿಸಿಕೊಳ್ಳಿ."
-                ]),
-                ("ಸದಸ್ಯತ್ವದ ಪ್ರಯೋಜನಗಳು (Membership Benefits)", [
-                    "ದೃಢೀಕರಿಸಿದ ಪಠ್ಯಕ್ರಮ ಮತ್ತು ವಿಡಿಯೋ ಮಾರ್ಗದರ್ಶಿಗಳಿಗೆ ನೇರ ಪ್ರವೇಶ.",
-                    "ಯಾವುದೇ ಕಡಿತವಿಲ್ಲದೆ ನೇರ UPI ಮೂಲಕ ತ್ವರಿತ ಸಾಪ್ತಾಹಿಕ ಪಾವತಿ.",
-                    "ನಿರಂತರ ತಾಂತ್ರಿಕ ಬೆಂಬಲ ಮತ್ತು ವರದಿ ವಿತರಣೆ ಸೇವೆ."
-                ])
-            ]
-        }
-
-        lang_faq_data = {
-            'English': [
-                ("What is the RK Solutions Smart Book?",
-                 "The Smart Book package includes complete competitive exam syllabus analysis, high-ranking SEO keyword matrices, and comprehensive coaching frameworks designed to triple student enrollments."),
-                ("How are earnings and wallet withdrawals processed?",
-                 "Every customer referred automatically credits your wallet. You can withdraw your earnings directly to your verified bank account via instant UPI without any deduction."),
-                ("How fast is the customized report generated?",
-                 "All customized reports (consisting of 1 strategy PDF document and 4 detailed Excel matrices) are processed by our backend admin team within 60 minutes."),
-                ("Can I access materials in all five regional languages?",
-                 "Yes. You can toggle between English, Tamil, Telugu, Hindi, and Kannada at any time using the content language dropdown filter.")
-            ],
-            'Tamil': [
-                ("RK Solutions Smart Book என்றால் என்ன?",
-                 "Smart Book என்பது போட்டித் தேர்வுகளுக்கான பாடத்திட்ட பகுப்பாய்வு, யூடியூப் தேடல் குறிச்சொற்கள் மற்றும் பயிற்சி மையங்களின் சேர்க்கையை 3 மடங்கு அதிகரிக்க உதவும் முழுமையான உத்தி வழிகாட்டியாகும்."),
-                ("வருமானம் மற்றும் பணப்பரிவர்த்தனை எவ்வாறு செய்யப்படுகிறது?",
-                 "ஒவ்வொரு வாடிக்கையாளர் சேர்க்கைக்கும் உங்கள் கணக்கில் பணம் உடனடியாக வரவு வைக்கப்படும். நீங்கள் எந்த பிடித்தமும் இன்றி நேரடி UPI மூலம் உங்கள் வங்கிக் கணக்கிற்கு உடனுக்குடன் பெற்றுக்கொள்ளலாம்."),
-                ("வாடிக்கையாளர் அறிக்கை எவ்வளவு நேரத்தில் உருவாக்கப்படும்?",
-                 "அனைத்து பிரத்யேக அறிக்கைகளும் (1 PDF உத்தி ஆவணம் மற்றும் 4 விரிவான Excel தாள்கள்) எங்கள் நிர்வாகக் குழுவினரால் 60 நிமிடங்களுக்குள் தயார் செய்து வழங்கப்படும்."),
-                ("நான் அனைத்து மொழிகளிலும் பயிற்சிப் பொருட்களைப் பெற முடியுமா?",
-                 "ஆம், மொழி தேர்வுப் பட்டியலைப் பயன்படுத்தி தமிழ், ஆங்கிலம், தெலுங்கு, இந்தி மற்றும் கன்னடம் ஆகிய ஐந்து மொழிகளிலும் பயிற்சிப் பொருட்களை எப்போது வேண்டுமானாலும் அணுகலாம்.")
-            ],
-            'Telugu': [
-                ("RK Solutions Smart Book అంటే ఏమిటి?",
-                 "Smart Book అనేది పోటీ పరీక్షల సిలబస్ విశ్లేషణ, హై-ర్యాంకింగ్ యూట్యూబ్ కీవర్డ్ మ్యాట్రిక్స్ మరియు కోచింగ్ సెంటర్ల అడ్మిషన్లను 3 రెట్లు పెంచే సమగ్ర వ్యూహాత్మక గైడ్."),
-                ("ఆదాయం మరియు వాలెట్ విత్‌డ్రా ప్రాసెస్ ఎలా జరుగుతుంది?",
-                 "ప్రతి విజయవంతమైన కస్టమర్ రిఫరల్‌కు మీ వాలెట్‌కు డబ్బు స్వయంచాలకంగా చేరుతుంది. మీరు UPI ద్వారా ఎటువంటి రుసుము లేకుండా నేరుగా మీ బ్యాంక్ ఖాతాకు నిధులను బదిలీ చేసుకోవచ్చు."),
-                ("కస్టమర్ రిపోర్ట్ ఎంత సమయంలో సిద్ధమవుతుంది?",
-                 "అన్ని అనుకూలీకరించిన నివేదికలు (1 PDF వ్యూహ పత్రం మరియు 4 Excel విశ్లేషణ పత్రాలు) మా అడ్మిన్ బృందం ద్వారా గరిష్టంగా 60 నిమిషాల్లో ప్రాసెస్ చేయబడతాయి."),
-                ("నేను అన్ని ప్రాంతీయ భాషల్లో మెటీరియల్‌ను యాక్సెస్ చేయవచ్చా?",
-                 "అవును. భాషా డ్రాప్‌డౌన్ ద్వారా మీరు తెలుగు, ఇంగ్లీష్, తమిళం, హిందీ మరియు కన్నడ భాషల్లో మెటీరియల్‌లను ఎప్పుడైనా ఎంచుకోవచ్చు.")
-            ],
-            'Hindi': [
-                ("RK Solutions Smart Book क्या है?",
-                 "Smart Book प्रतियोगी परीक्षाओं के पाठ्यक्रम विश्लेषण, उच्च-रैंकिंग YouTube कीवर्ड मैट्रिक्स और कोचिंग संस्थानों के छात्र प्रवेश को 3 गुना बढ़ाने के लिए एक संपूर्ण रणनीति गाइड है।"),
-                ("कमाई और वॉलेट निकासी की प्रक्रिया क्या है?",
-                 "प्रत्येक सफल रेफरल पर प्रोत्साहन राशि आपके वॉलेट में तुरंत जुड़ जाती है। आप बिना किसी कटौती के तत्काल UPI के माध्यम से अपने बैंक खाते में राशि निकाल सकते हैं।"),
-                ("कस्टमर रिपोर्ट कितनी देर में तैयार होती है?",
-                 "सभी कस्टमाइज्ड रिपोर्ट्स (1 रणनीति PDF और 4 विस्तृत Excel शीट्स) हमारी एडमिन टीम द्वारा 60 मिनट के भीतर प्रोसेस और अपलोड कर दी जाती हैं।"),
-                ("क्या मैं सभी पांच क्षेत्रीय भाषाओं में सामग्री प्राप्त कर सकता हूँ?",
-                 "हाँ। आप भाषा फ़िल्टर का उपयोग करके हिंदी, अंग्रेजी, तमिल, तेलुगु और कन्नड़ के बीच कभी भी स्विच कर सकते हैं।")
-            ],
-            'Kannada': [
-                ("RK Solutions Smart Book ಎಂದರೇನು?",
-                 "Smart Book ಎಂಬುದು ಸ್ಪರ್ಧಾತ್ಮಕ ಪರೀಕ್ಷಾ ಪಠ್ಯಕ್ರಮ ವಿಶ್ಲೇಷಣೆ, ಉನ್ನತ ಶ್ರೇಯಾಂಕದ ಕೀವರ್ಡ್ ಮ್ಯಾಟ್ರಿಕ್ಸ್ ಮತ್ತು ಕೋಚಿಂಗ್ ಕೇಂದ್ರಗಳ ಪ್ರವೇಶಾತಿಯನ್ನು 3 ಪಟ್ಟು ಹೆಚ್ಚಿಸಲು ಸಹಾಯ ಮಾಡುವ ಸಮಗ್ರ ಮಾರ್ಗದರ್ಶಿಯಾಗಿದೆ."),
-                ("ಗಳಿಕೆ ಮತ್ತು ವ್ಯಾಲೆಟ್ ಹಿಂಪಡೆಯುವಿಕೆ ಹೇಗೆ ಕಾರ್ಯನಿರ್ವಹಿಸುತ್ತದೆ?",
-                 "ಪ್ರತಿ ಯಶಸ್ವಿ ರೆಫರಲ್‌ನೊಂದಿಗೆ ನಿಮ್ಮ ವ್ಯಾಲೆಟ್‌ಗೆ ಹಣ ತಕ್ಷಣ ಜಮೆಯಾಗುತ್ತದೆ. ನೀವು ಯಾವುದೇ ಶುಲ್ಕವಿಲ್ಲದೆ ನೇರ UPI ಮೂಲಕ ನಿಮ್ಮ ಬ್ಯಾಂಕ್ ಖಾತೆಗೆ ಹಣವನ್ನು ವರ್ಗಾಯಿಸಿಕೊಳ್ಳಬಹುದು."),
-                ("ಗ್ರಾಹಕರ ವರದಿಯನ್ನು ಎಷ್ಟು ಬೇಗನೆ ಸಿದ್ಧಪಡಿಸಲಾಗುತ್ತದೆ?",
-                 "ಎಲ್ಲಾ ಕಸ್ಟಮೈಸ್ ಮಾಡಿದ ವರದಿಗಳನ್ನು (1 PDF ತಂತ್ರ ದಾಖಲೆ ಮತ್ತು 4 ವಿವರವಾದ Excel ಶೀಟ್‌ಗಳು) ನಮ್ಮ ತಂಡವು 60 ನಿಮಿಷಗಳಲ್ಲಿ ಪ್ರಕ್ರಿಯೆಗೊಳಿಸಿ ಒದಗಿಸುತ್ತದೆ."),
-                ("ನಾನು ಎಲ್ಲಾ ಪ್ರಾದೇಶಿಕ ಭಾಷೆಗಳಲ್ಲಿ ತರಬೇತಿ ಸಾಮಗ್ರಿಗಳನ್ನು ಪಡೆಯಬಹುದೇ?",
-                 "ಹೌದು. ಭಾಷಾ ಆಯ್ಕೆಯ ಪಟ್ಟಿಯ ಮೂಲಕ ನೀವು ಕನ್ನಡ, ಇಂಗ್ಲಿಷ್, ತಮಿಳು, ತೆಲುಗು ಮತ್ತು ಹಿಂದಿ ಭಾಷೆಗಳಲ್ಲಿ ಅಧ್ಯಯನ ಸಾಮಗ್ರಿಗಳನ್ನು ಸುಲಭವಾಗಿ ವೀಕ್ಷಿಸಬಹುದು.")
-            ]
-        }
-
-        for lang in languages:
-            c.execute("SELECT COUNT(*) FROM materials WHERE language = ? AND category = 'sales_script'", (lang,))
-            if c.fetchone()[0] < 50:
-                c.execute("DELETE FROM materials WHERE language = ? AND category = 'sales_script'", (lang,))
-                templates = lang_script_data[lang]
-                for s in range(1, 51):
-                    title_base, points = templates[(s - 1) % len(templates)]
-                    heading = f"Script {s:02d} – {title_base}"
-                    body = "\n".join([f"• {pt.strip()}" for pt in points])
-                    c.execute('''INSERT INTO materials (category, language, title, description, content, sort_order, is_active)
-                                 VALUES ('sales_script', ?, ?, 'High-conversion pitch script', ?, ?, 1)''',
-                              (lang, heading, body, s))
-
-            # FAQs
-            c.execute("DELETE FROM materials WHERE language = ? AND category = 'faq'", (lang,))
-            faqs = lang_faq_data[lang]
-            for f_idx, (q_text, a_text) in enumerate(faqs, start=1):
-                c.execute('''INSERT INTO materials (category, language, title, description, content, sort_order, is_active)
-                             VALUES ('faq', ?, ?, 'Frequently Asked Question', ?, ?, 1)''',
-                          (lang, q_text, a_text, f_idx))
-
-            # Videos
-            c.execute("SELECT COUNT(*) FROM materials WHERE language = ? AND category = 'video'", (lang,))
-            if c.fetchone()[0] < 20:
-                c.execute("DELETE FROM materials WHERE language = ? AND category = 'video'", (lang,))
-                for v in range(1, 21):
-                    v_url = tutorial_videos[(v - 1) % len(tutorial_videos)]
-                    c.execute('''INSERT INTO materials (category, language, title, description, content, sort_order, is_active)
-                                 VALUES ('video', ?, ?, '30 mins comprehensive module', ?, ?, 1)''',
-                              (lang, f"Module {v}: Smart Book Mastery ({lang})", v_url, v))
-
-            # Posters
-            c.execute("SELECT COUNT(*) FROM materials WHERE language = ? AND category = 'poster'", (lang,))
-            if c.fetchone()[0] < 15:
-                c.execute("DELETE FROM materials WHERE language = ? AND category = 'poster'", (lang,))
-                for p in range(1, 16):
-                    img_url = poster_images[(p - 1) % len(poster_images)]
-                    c.execute('''INSERT INTO materials (category, language, title, description, file_url, sort_order, is_active)
-                                 VALUES ('poster', ?, ?, 'High resolution flyer', ?, ?, 1)''',
-                              (lang, f"Promotional Flyer #{p} ({lang})", img_url, p))
-
-            # Smart Book Files
-            c.execute("SELECT COUNT(*) FROM materials WHERE language = ? AND category = 'smart_book'", (lang,))
-            if c.fetchone()[0] < 50:
-                c.execute("DELETE FROM materials WHERE language = ? AND category = 'smart_book'", (lang,))
-                for b_idx in range(1, 51):
-                    is_pdf = (b_idx % 5 == 1)
-                    file_type = "pdf" if is_pdf else "xlsx"
-                    b_title = f"Handbook Module {((b_idx - 1)//5) + 1} Strategy Guide ({lang}).pdf" if is_pdf else f"Keyword Matrix Analysis Part {((b_idx - 1)%5)} ({lang}).xlsx"
-                    c.execute('''INSERT INTO materials (category, language, title, description, content, sort_order, is_active)
-                                 VALUES ('smart_book', ?, ?, ?, ?, ?, 1)''',
-                              (lang, f"File #{b_idx:02d}: [{file_type.upper()}] {b_title}", f"Official {file_type.upper()} material", file_type, b_idx))
+        # Seed FAQs once if not already seeded
+        c.execute("SELECT value FROM app_settings WHERE key = 'faq_seeded'")
+        if c.fetchone() is None:
+            c.execute("SELECT COUNT(*) FROM materials WHERE category = 'faq'")
+            if c.fetchone()[0] == 0:
+                lang_faq_data = {
+                    'English': [
+                        ("What is the RK Solutions Smart Book?",
+                         "The Smart Book package includes complete competitive exam syllabus analysis, high-ranking SEO keyword matrices, and comprehensive coaching frameworks designed to triple student enrollments."),
+                        ("How are earnings and wallet withdrawals processed?",
+                         "Every customer referred automatically credits your wallet. You can withdraw your earnings directly to your verified bank account via instant UPI without any deduction."),
+                        ("How fast is the customized report generated?",
+                         "All customized reports (consisting of 1 strategy PDF document and 4 detailed Excel matrices) are processed by our backend admin team within 60 minutes."),
+                        ("Can I access materials in all five regional languages?",
+                         "Yes. You can toggle between English, Tamil, Telugu, Hindi, and Kannada at any time using the content language dropdown filter.")
+                    ],
+                    'Tamil': [
+                        ("RK Solutions Smart Book என்றால் என்ன?",
+                         "Smart Book என்பது போட்டித் தேர்வுகளுக்கான பாடத்திட்ட பகுப்பாய்வு, யூடியூப் தேடல் குறிச்சொற்கள் மற்றும் பயிற்சி மையங்களின் சேர்க்கையை 3 மடங்கு அதிகரிக்க உதவும் முழுமையான உத்தி வழிகாட்டியாகும்."),
+                        ("வருமானம் மற்றும் பணப்பரிவர்த்தனை எவ்வாறு செய்யப்படுகிறது?",
+                         "ஒவ்வொரு வாடிக்கையாளர் சேர்க்கைக்கும் உங்கள் கணக்கில் பணம் உடனடியாக வரவு வைக்கப்படும். நீங்கள் எந்த பிடித்தமும் இன்றி நேரடி UPI மூலம் உங்கள் வங்கிக் கணக்கிற்கு உடனுக்குடன் பெற்றுக்கொள்ளலாம்."),
+                        ("வாடிக்கையாளர் அறிக்கை எவ்வளவு நேரத்தில் உருவாக்கப்படும்?",
+                         "அனைத்து பிரத்யேக அறிக்கைகளும் (1 PDF உத்தி ஆவணம் மற்றும் 4 விரிவான Excel தாள்கள்) எங்கள் நிர்வாகக் குழுவினரால் 60 நிமிடங்களுக்குள் தயார் செய்து வழங்கப்படும்."),
+                        ("நான் அனைத்து மொழிகளிலும் பயிற்சிப் பொருட்களைப் பெற முடியுமா?",
+                         "ஆம், மொழி தேர்வுப் பட்டியலைப் பயன்படுத்தி தமிழ், ஆங்கிலம், தெலுங்கு, இந்தி மற்றும் கன்னடம் ஆகிய ஐந்து மொழிகளிலும் பயிற்சிப் பொருட்களை எப்போது வேண்டுமானாலும் அணுகலாம்.")
+                    ],
+                    'Telugu': [
+                        ("RK Solutions Smart Book అంటే ఏమిటి?",
+                         "Smart Book అనేది పోటీ పరీక్షల సిలబస్ విశ్లేషణ, హై-ర్యాంకింగ్ యూట్యూబ్ కీవర్డ్ మ్యాట్రిక్స్ మరియు కోచింగ్ సెంటర్ల అడ్మిషన్లను 3 రెట్లు పెంచే సమగ్ర వ్యూహాత్మక గైడ్."),
+                        ("ఆదాయం మరియు వాలెట్ విత్‌డ్రా ప్రాసెస్ ఎలా జరుగుతుంది?",
+                         "ప్రతి విజయవంతమైన కస్టమర్ రిఫరల్‌కు మీ వాలెట్‌కు డబ్బు స్వయంచాలకంగా చేరుతుంది. మీరు UPI ద్వారా ఎటువంటి రుసుము లేకుండా నేరుగా మీ బ్యాంక్ ఖాతాకు నిధులను బదిలీ చేసుకోవచ్చు."),
+                        ("కస్టమర్ రిపోర్ట్ ఎంత సమయంలో సిద్ధమవుతుంది?",
+                         "అన్ని అనుకూలీకరించిన నివేదికలు (1 PDF వ్యూహ పత్రం మరియు 4 Excel విశ్లేషణ పత్రాలు) మా అడ్మిన్ బృందం ద్వారా గరిష్టంగా 60 నిమిషాల్లో ప్రాసెస్ చేయబడతాయి."),
+                        ("నేను అన్ని ప్రాంతీయ భాషల్లో మెటీరియల్‌ను యాక్సెస్ చేయవచ్చా?",
+                         "అవును. భాషా డ్రాప్‌డౌన్ ద్వారా మీరు తెలుగు, ఇంగ్లీష్, తమిళం, హిందీ మరియు కన్నడ భాషల్లో మెటీరియల్‌లను ఎప్పుడైనా ఎంచుకోవచ్చు.")
+                    ],
+                    'Hindi': [
+                        ("RK Solutions Smart Book क्या है?",
+                         "Smart Book प्रतियोगी परीक्षाओं के पाठ्यक्रम विश्लेषण, उच्च-रैंकिंग YouTube कीवर्ड मैट्रिक्स और कोचिंग संस्थानों के छात्र प्रवेश को 3 गुना बढ़ाने के लिए एक संपूर्ण रणनीति गाइड है।"),
+                        ("कमाई और वॉलेट निकासी की प्रक्रिया क्या है?",
+                         "प्रत्येक सफल रेफरल पर प्रोत्साहन राशि आपके वॉलेट में तुरंत जुड़ जाती है। आप बिना किसी कटौती के तत्काल UPI के माध्यम से अपने बैंक खाते में राशि निकाल सकते हैं।"),
+                        ("कस्टमर रिपोर्ट कितनी देर में तैयार होती है?",
+                         "सभी कस्टमाइज्ड रिपोर्ट्स (1 रणनीति PDF और 4 विस्तृत Excel शीट्स) हमारी एडमिन टीम द्वारा 60 मिनट के भीतर प्रोसेस और अपलोड कर दी जाती हैं।"),
+                        ("क्या मैं सभी पांच क्षेत्रीय भाषाओं में सामग्री प्राप्त कर सकता हूँ?",
+                         "हाँ। आप भाषा फ़िल्टर का उपयोग करके हिंदी, अंग्रेजी, तमिल, तेलुगु और कन्नड़ के बीच कभी भी स्विच कर सकते हैं।")
+                    ],
+                    'Kannada': [
+                        ("RK Solutions Smart Book ಎಂದರೇನು?",
+                         "Smart Book ಎಂಬುದು ಸ್ಪರ್ಧಾತ್ಮಕ ಪರೀಕ್ಷಾ ಪಠ್ಯಕ್ರಮ ವಿಶ್ಲೇಷಣೆ, ಉನ್ನತ ಶ್ರೇಯಾಂಕದ ಕೀವರ್ಡ್ ಮ್ಯಾಟ್ರಿಕ್ಸ್ ಮತ್ತು ಕೋಚಿಂಗ್ ಕೇಂದ್ರಗಳ ಪ್ರವೇಶಾತಿಯನ್ನು 3 ಪಟ್ಟು ಹೆಚ್ಚಿಸಲು ಸಹಾಯ ಮಾಡುವ ಸಮಗ್ರ ಮಾರ್ಗದರ್ಶಿಯಾಗಿದೆ."),
+                        ("ಗಳಿಕೆ ಮತ್ತು ವ್ಯಾಲೆಟ್ ಹಿಂಪಡೆಯುವಿಕೆ ಹೇಗೆ ಕಾರ್ಯನಿರ್ವಹಿಸುತ್ತದೆ?",
+                         "ಪ್ರತಿ ಯಶಸ್ವಿ ರೆಫರಲ್‌ನೊಂದಿಗೆ ನಿಮ್ಮ ವ್ಯಾಲೆಟ್‌ಗೆ ಹಣ ತಕ್ಷಣ ಜಮೆಯಾಗುತ್ತದೆ. ನೀವು ಯಾವುದೇ ಶುಲ್ಕವಿಲ್ಲದೆ ನೇರ UPI ಮೂಲಕ ನಿಮ್ಮ ಬ್ಯಾಂಕ್ ಖಾತೆಗೆ ಹಣವನ್ನು ವರ್ಗಾಯಿಸಿಕೊಳ್ಳಬಹುದು."),
+                        ("ಗ್ರಾಹಕರ ವರದಿಯನ್ನು ಎಷ್ಟು ಬೇಗನೆ ಸಿದ್ಧಪಡಿಸಲಾಗುತ್ತದೆ?",
+                         "ಎಲ್ಲಾ ಕಸ್ಟಮೈಸ್ ಮಾಡಿದ ವರದಿಗಳನ್ನು (1 PDF ತಂತ್ರ ದಾಖಲೆ ಮತ್ತು 4 ವಿವರವಾದ Excel ಶೀಟ್‌ಗಳು) ನಮ್ಮ ತಂಡವು 60 ನಿಮಿಷಗಳಲ್ಲಿ ಪ್ರಕ್ರಿಯೆಗೊಳಿಸಿ ಒದಗಿಸುತ್ತದೆ."),
+                        ("ನಾನು ಎಲ್ಲಾ ಪ್ರಾದೇಶಿಕ ಭಾಷೆಗಳಲ್ಲಿ ತರಬೇತಿ ಸಾಮಗ್ರಿಗಳನ್ನು ಪಡೆಯಬಹುದೇ?",
+                         "ಹೌದು. ಭಾಷಾ ಆಯ್ಕೆಯ ಪಟ್ಟಿಯ ಮೂಲಕ ನೀವು ಕನ್ನಡ, ಇಂಗ್ಲಿಷ್, ತಮಿಳು, ತೆಲುಗು ಮತ್ತು ಹಿಂದಿ ಭಾಷೆಗಳಲ್ಲಿ ಅಧ್ಯಯನ ಸಾಮಗ್ರಿಗಳನ್ನು ಸುಲಭವಾಗಿ ವೀಕ್ಷಿಸಬಹುದು.")
+                    ]
+                }
+                for lang in TRAINING_LANGUAGES:
+                    for f_idx, (q_text, a_text) in enumerate(lang_faq_data[lang], start=1):
+                        c.execute('''INSERT INTO materials (category, language, title, description, content, sort_order, is_active)
+                                     VALUES ('faq', ?, ?, 'Frequently Asked Question', ?, ?, 1)''',
+                                  (lang, q_text, a_text, f_idx))
+            c.execute("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('faq_seeded', '1')")
 
         conn.commit()
 
@@ -982,13 +908,30 @@ init_db()
 backfill_customer_reports()
 
 # -------------------------------------------------------------
-# RBAC SECURITY DECORATORS
+# RBAC SECURITY DECORATORS (STRICT BACKEND ENFORCEMENT)
 # -------------------------------------------------------------
+def is_designated_admin_user(user) -> bool:
+    if not user:
+        return False
+    email = (user['email'] or '').strip().lower()
+    return (
+        user['account_status'] == 'active'
+        and user['role'] == 'admin'
+        and email == ADMIN_DESIGNATED_EMAIL
+    )
+
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if 'user_id' not in session:
             return jsonify({'success': False, 'message': 'Authentication required. Please login.'}), 401
+        db = get_db()
+        user = db.execute("SELECT id, email, role, account_status FROM users WHERE id = ?",
+                          (session['user_id'],)).fetchone()
+        if not user or user['account_status'] != 'active':
+            session.clear()
+            return jsonify({'success': False, 'message': 'Authentication required. Please login.'}), 401
+        g.current_user = user
         return f(*args, **kwargs)
     return decorated_function
 
@@ -997,8 +940,15 @@ def admin_required(f):
     def decorated_function(*args, **kwargs):
         if 'user_id' not in session:
             return jsonify({'success': False, 'message': 'Authentication required.'}), 401
-        if session.get('role') != 'admin':
-            return jsonify({'success': False, 'message': 'Access denied: Admin privileges required.'}), 403
+        db = get_db()
+        user = db.execute("SELECT id, email, role, account_status FROM users WHERE id = ?",
+                          (session['user_id'],)).fetchone()
+        if not user or user['account_status'] != 'active':
+            session.clear()
+            return jsonify({'success': False, 'message': 'Authentication required.'}), 401
+        if not is_designated_admin_user(user):
+            return jsonify({'success': False, 'message': 'Access denied: Designated Admin privileges required.'}), 403
+        g.current_user = user
         return f(*args, **kwargs)
     return decorated_function
 
@@ -1021,11 +971,9 @@ def send_email_otp():
 
         db = get_db()
 
-        # 1. 60-second cooldown check
         now = datetime.datetime.now()
         cooldown_cutoff = (now - datetime.timedelta(seconds=60)).strftime("%Y-%m-%d %H:%M:%S")
         
-        # Verify column exists safely
         c = db.cursor()
         c.execute("PRAGMA table_info(otp_codes)")
         cols = [r[1] for r in c.fetchall()]
@@ -1037,19 +985,16 @@ def send_email_otp():
         if recent:
             return jsonify({'success': False, 'message': 'Please wait 60 seconds before requesting another OTP.'}), 200
 
-        # 2. Daily limit check (300 emails/day)
         if not check_and_increment_daily_usage(db):
             return jsonify({
                 'success': False,
                 'message': "Today's OTP email limit has been reached. Please try again later."
             }), 200
 
-        # 3. Secure 6-digit OTP generation
         raw_otp = str(secrets.randbelow(900000) + 100000)
         otp_hashed = hash_otp(raw_otp)
         expires_at = (now + datetime.timedelta(minutes=5)).strftime("%Y-%m-%d %H:%M:%S")
 
-        # Insert safely with all available columns
         if 'identifier' in cols and 'otp_hash' in cols:
             db.execute('''INSERT INTO otp_codes (identifier, phone, otp, otp_hash, purpose, expires_at, created_at) 
                           VALUES (?, ?, ?, ?, ?, ?, ?)''', (email, email, raw_otp, otp_hashed, purpose, expires_at, now.strftime("%Y-%m-%d %H:%M:%S")))
@@ -1058,7 +1003,6 @@ def send_email_otp():
                           VALUES (?, ?, ?, ?)''', (email, raw_otp, purpose, expires_at))
         db.commit()
 
-        # 4. Dispatch via Brevo REST API
         success, msg = send_brevo_email_otp(email, raw_otp)
         return jsonify({
             'success': success,
@@ -1088,7 +1032,6 @@ def verify_email_otp_login():
         c.execute("PRAGMA table_info(otp_codes)")
         cols = [r[1] for r in c.fetchall()]
 
-        # Query safely using identifier or fallback
         if 'identifier' in cols and 'otp_hash' in cols:
             record = db.execute('''SELECT * FROM otp_codes 
                                    WHERE (identifier = ? OR phone = ?) 
@@ -1108,7 +1051,7 @@ def verify_email_otp_login():
 
         db.execute("UPDATE otp_codes SET verified = 1 WHERE id = ?", (record['id'],))
 
-        user = db.execute("SELECT * FROM users WHERE email = ? OR phone = ?", (email, email)).fetchone()
+        user = db.execute("SELECT * FROM users WHERE LOWER(email) = ? OR LOWER(phone) = ?", (email, email)).fetchone()
         if not user:
             if email == ADMIN_DESIGNATED_EMAIL:
                 role = 'admin'
@@ -1124,12 +1067,20 @@ def verify_email_otp_login():
                           VALUES (?, ?, NULL, ?, ?, ?, 'active')''',
                        (name, email, member_id, role, ref_code))
             db.commit()
-            user = db.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+            user = db.execute("SELECT * FROM users WHERE LOWER(email) = ?", (email,)).fetchone()
+        else:
+            # Enforce designated Admin role strictly by email
+            expected_role = 'admin' if (user['email'] or '').strip().lower() == ADMIN_DESIGNATED_EMAIL else 'partner'
+            if user['role'] != expected_role:
+                db.execute("UPDATE users SET role = ? WHERE id = ?", (expected_role, user['id']))
+                db.commit()
+                user = db.execute("SELECT * FROM users WHERE id = ?", (user['id'],)).fetchone()
 
         if user['account_status'] != 'active':
             return jsonify({'success': False, 'message': 'Your account has been deactivated. Contact admin.'}), 200
 
         db.commit()
+        session.permanent = True
         session['user_id'] = user['id']
         session['role'] = user['role']
 
@@ -1142,7 +1093,10 @@ def verify_email_otp_login():
                 'email': user['email'] or email,
                 'member_id': user['member_id'],
                 'city': user['city'],
-                'role': user['role']
+                'role': user['role'],
+                'wallet_balance': user['wallet_balance'],
+                'paid_earnings': user['paid_earnings'],
+                'referral_code': user['referral_code']
             }
         }), 200
     except Exception as e:
@@ -1199,9 +1153,11 @@ def me():
         return jsonify({'logged_in': False})
     db = get_db()
     user = db.execute("SELECT * FROM users WHERE id = ?", (session['user_id'],)).fetchone()
-    if not user:
+    if not user or user['account_status'] != 'active':
         session.clear()
         return jsonify({'logged_in': False})
+    effective_role = 'admin' if is_designated_admin_user(user) else 'partner'
+    session['role'] = effective_role
     return jsonify({
         'logged_in': True,
         'user': {
@@ -1210,7 +1166,7 @@ def me():
             'email': user['email'],
             'member_id': user['member_id'],
             'city': user['city'],
-            'role': user['role'],
+            'role': effective_role,
             'account_status': user['account_status'],
             'wallet_balance': user['wallet_balance'],
             'paid_earnings': user['paid_earnings'],
@@ -1225,7 +1181,7 @@ def me():
 @login_required
 def dashboard_metrics():
     user_id = session['user_id']
-    role = session.get('role', 'partner')
+    is_admin = is_designated_admin_user(g.current_user)
     date_filter = request.args.get('date', None)
     start_date = request.args.get('start_date', None)
     end_date = request.args.get('end_date', None)
@@ -1234,7 +1190,7 @@ def dashboard_metrics():
     query = "SELECT * FROM customers WHERE 1=1"
     params = []
     
-    if role != 'admin':
+    if not is_admin:
         query += " AND user_id = ?"
         params.append(user_id)
 
@@ -1249,6 +1205,7 @@ def dashboard_metrics():
 
     membership_count = sum(1 for c in cust_rows if 'Membership' in (c['plan_name'] or ''))
     smartbook_count = sum(1 for c in cust_rows if 'Smart' in (c['plan_name'] or ''))
+    status_counts = compute_status_counts(cust_rows)
 
     user = db.execute("SELECT wallet_balance, paid_earnings FROM users WHERE id = ?", (user_id,)).fetchone()
     banners = db.execute("SELECT * FROM banners WHERE is_active = 1 AND slot IS NOT NULL ORDER BY slot ASC LIMIT 3").fetchall()
@@ -1256,10 +1213,12 @@ def dashboard_metrics():
     return jsonify({
         'success': True,
         'metrics': {
-            'membership_count': membership_count if (date_filter or start_date) else 15,
-            'smartbook_count': smartbook_count if (date_filter or start_date) else 22,
-            'wallet_balance': user['wallet_balance'] if user else 1200.0,
-            'paid_earnings': user['paid_earnings'] if user else 8250.0
+            'membership_count': membership_count,
+            'smartbook_count': smartbook_count,
+            'total_customers': len(cust_rows),
+            'status_counts': status_counts,
+            'wallet_balance': user['wallet_balance'] if user else 0.0,
+            'paid_earnings': user['paid_earnings'] if user else 0.0
         },
         'banners': [dict(b) for b in banners]
     })
@@ -1281,14 +1240,14 @@ def get_next_customer_id():
 @login_required
 def manage_customers():
     user_id = session['user_id']
-    role = session.get('role', 'partner')
+    is_admin = is_designated_admin_user(g.current_user)
     db = get_db()
 
     if request.method == 'POST':
         data = request.get_json(force=True, silent=True) or {}
         name = data.get('name', '').strip()
         phone = data.get('phone', '').strip().replace(' ', '')
-        location = data.get('location', '').strip()
+        location = (data.get('location') or data.get('city') or '').strip()
         comments = data.get('comments', '').strip()
         plan_name = data.get('plan_name', 'Membership')
         youtube_url = data.get('youtube_url', '').strip()
@@ -1296,24 +1255,24 @@ def manage_customers():
         kw2 = data.get('keyword_2', '').strip()
         kw3 = data.get('keyword_3', '').strip()
 
-        if not name or not phone:
+        clean_mobile = phone.replace("+91", "").replace("-", "").strip()[-10:]
+        if not name or not clean_mobile:
             return jsonify({'success': False, 'message': 'Customer Name and Mobile Number are required.'}), 200
 
-        clean_mobile = phone.replace("+91", "").replace("-", "").strip()[-10:]
         customer_id = generate_next_customer_id()
         city = location or 'Tamil Nadu'
+        today_str = datetime.date.today().isoformat()
 
         db.execute('''INSERT INTO customers (user_id, customer_id, name, phone, city, location, plan_name, 
-                                             youtube_url, keyword_1, keyword_2, keyword_3, comments, status)
-                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'New')''',
-                   (user_id, customer_id, name, clean_mobile, city, location, plan_name, youtube_url, kw1, kw2, kw3, comments))
+                                             youtube_url, keyword_1, keyword_2, keyword_3, comments, status, created_date)
+                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'New', ?)''',
+                   (user_id, customer_id, name, clean_mobile, city, location, plan_name, youtube_url, kw1, kw2, kw3, comments, today_str))
         
         amount = 955.0 if 'Membership' in plan_name else 300.0
         db.execute('''INSERT INTO orders (user_id, customer_id, plan_name, amount, status, upload_status)
                       VALUES (?, ?, ?, ?, 'Pending', 'Pending')''', (user_id, customer_id, plan_name, amount))
         db.commit()
 
-        # Build the 1 PDF + 4 Excel reports for this customer right away (never blocks saving the customer).
         reports_created = generate_customer_reports(db, customer_id)
 
         return jsonify({'success': True, 'message': 'Customer added successfully!', 'customer_id': customer_id,
@@ -1323,7 +1282,13 @@ def manage_customers():
     search = request.args.get('search')
     date_val = request.args.get('date')
 
-    if role == 'admin':
+    if is_admin:
+        status_rows = db.execute("SELECT status FROM customers").fetchall()
+    else:
+        status_rows = db.execute("SELECT status FROM customers WHERE user_id = ?", (user_id,)).fetchall()
+    status_counts = compute_status_counts(status_rows)
+
+    if is_admin:
         query = '''SELECT c.*, u.name as added_by_name, u.member_id as added_by_code
                    FROM customers c JOIN users u ON u.id = c.user_id WHERE 1=1'''
         params = []
@@ -1344,19 +1309,21 @@ def manage_customers():
 
     query += " ORDER BY c.id DESC"
     rows = db.execute(query, params).fetchall()
-    return jsonify({'success': True, 'customers': [dict(r) for r in rows]})
+    return jsonify({'success': True, 'customers': [dict(r) for r in rows], 'status_counts': status_counts})
 
 @app.route('/api/customers/<int:id>/status', methods=['PUT', 'PATCH'])
 @login_required
 def update_customer_status(id):
     user_id = session['user_id']
-    role = session.get('role', 'partner')
+    is_admin = is_designated_admin_user(g.current_user)
     data = request.get_json(force=True, silent=True) or {}
-    new_status = data.get('status', 'Joined')
+    new_status = (data.get('status') or 'Joined').strip()
+    if new_status not in VALID_CUSTOMER_STATUSES:
+        return jsonify({'success': False, 'message': 'Invalid customer status.'}), 200
     comments = data.get('comments')
 
     db = get_db()
-    if role == 'admin':
+    if is_admin:
         customer = db.execute("SELECT id, customer_id FROM customers WHERE id = ?", (id,)).fetchone()
     else:
         customer = db.execute("SELECT id, customer_id FROM customers WHERE id = ? AND user_id = ?", (id, user_id)).fetchone()
@@ -1370,7 +1337,6 @@ def update_customer_status(id):
         db.execute("UPDATE customers SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (new_status, id))
     db.commit()
 
-    # Keep the automatic reports in step with the customer's latest data.
     generate_customer_reports(db, customer['customer_id'])
 
     return jsonify({'success': True, 'message': 'Status updated successfully.'})
@@ -1379,10 +1345,10 @@ def update_customer_status(id):
 @login_required
 def export_customers(fmt):
     user_id = session['user_id']
-    role = session.get('role', 'partner')
+    is_admin = is_designated_admin_user(g.current_user)
     db = get_db()
 
-    if role == 'admin':
+    if is_admin:
         rows = db.execute('''SELECT created_date, customer_id, name, phone, status 
                              FROM customers ORDER BY id DESC''').fetchall()
     else:
@@ -1471,20 +1437,57 @@ def export_customers(fmt):
 
     return jsonify({'error': 'Unsupported format'}), 200
 
+# -------------------------------------------------------------
+# USER-SIDE READ-ONLY TRAINING MATERIALS & SECURE FILE SERVING
+# Only PUBLISHED (is_active = 1) materials are visible/downloadable to regular users.
+# -------------------------------------------------------------
+def serialize_material_row(row, include_admin_fields=False):
+    has_file = bool(row['stored_path'])
+    ext = (row['file_ext'] or '').lower()
+    file_type = classify_file_type(ext) if ext else ('video' if row['category'] == 'video' and row['content'] else 'text')
+    item = {
+        'id': row['id'],
+        'category': row['category'],
+        'language': row['language'],
+        'title': row['title'],
+        'description': row['description'] or '',
+        'content': row['content'] or '',
+        'file_url': row['file_url'] or '',
+        'has_file': has_file,
+        'original_filename': row['original_filename'] or '',
+        'file_ext': ext,
+        'file_type': file_type,
+        'size_bytes': row['size_bytes'] or 0,
+        'download_url': f"/api/training/files/{row['id']}" if has_file else '',
+        'view_url': f"/api/training/files/{row['id']}?inline=1" if has_file else '',
+        'created_at': str(row['created_at'] or ''),
+        'updated_at': str(row['updated_at'] or ''),
+    }
+    if include_admin_fields:
+        item['is_active'] = int(row['is_active'] or 0)
+        item['sort_order'] = int(row['sort_order'] or 1)
+    return item
+
 @app.route('/api/training/resources')
+@login_required
 def get_training_resources():
-    lang = request.args.get('language', 'English')
-    cat = request.args.get('category')
-    
+    lang = (request.args.get('language') or 'English').strip()
+    cat = (request.args.get('category') or '').strip()
+
     db = get_db()
+    count_rows = db.execute('''SELECT category, COUNT(*) AS cnt
+                               FROM materials
+                               WHERE language = ? AND is_active = 1
+                               GROUP BY category''', (lang,)).fetchall()
+    counts = {r['category']: r['cnt'] for r in count_rows}
+
     query = "SELECT * FROM materials WHERE language = ? AND is_active = 1"
     params = [lang]
-
     if cat:
         query += " AND category = ?"
         params.append(cat)
 
-    query += " ORDER BY sort_order ASC, id ASC"
+    query += " ORDER BY sort_order ASC, id DESC"
     rows = db.execute(query, params).fetchall()
 
     return jsonify({
@@ -1492,9 +1495,375 @@ def get_training_resources():
         'language': lang,
         'category': cat,
         'count': len(rows),
-        'items': [dict(r) for r in rows]
+        'counts': counts,
+        'items': [serialize_material_row(r) for r in rows]
     })
 
+@app.route('/api/training/files/<int:material_id>')
+@login_required
+def serve_training_material_file(material_id):
+    db = get_db()
+    rec = db.execute("SELECT * FROM materials WHERE id = ?", (material_id,)).fetchone()
+    if not rec or not rec['stored_path']:
+        return jsonify({'success': False, 'message': 'File not found.'}), 404
+
+    is_admin = is_designated_admin_user(g.current_user)
+    if rec['is_active'] != 1 and not is_admin:
+        return jsonify({'success': False, 'message': 'Material is not published.'}), 404
+
+    full_path = resolve_private_path(rec['stored_path'], TRAINING_UPLOAD_ROOT)
+    if not full_path:
+        return jsonify({'success': False, 'message': 'File not found on server.'}), 404
+
+    download_name = rec['original_filename'] or f"material_{rec['id']}.{rec['file_ext'] or 'bin'}"
+    guessed_mime = rec['mime_type'] or mimetypes.guess_type(download_name)[0] or 'application/octet-stream'
+    ext = (rec['file_ext'] or '').lower()
+    inline_requested = request.args.get('inline') == '1'
+    allow_inline = classify_file_type(ext) in ('pdf', 'image', 'video', 'text')
+    show_inline = inline_requested and allow_inline
+
+    response = send_file(
+        full_path,
+        mimetype=guessed_mime,
+        as_attachment=not show_inline,
+        download_name=download_name,
+        conditional=True
+    )
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['Cache-Control'] = 'private, no-store'
+    return response
+
+# -------------------------------------------------------------
+# ADMIN-ONLY TRAINING MATERIAL CRUD APIS (4 CATEGORIES)
+# Categories: video, sales_script, poster, smart_book
+# Protected strictly by @admin_required (varsha.thirumal21@gmail.com only).
+# -------------------------------------------------------------
+def _validate_and_store_training_file(file_obj, category: str):
+    """Validates an uploaded training file against category rules, saves to TRAINING_UPLOAD_ROOT, returns metadata dict or (None, err_msg)."""
+    rules = TRAINING_CATEGORY_RULES[category]
+    raw_name = (file_obj.filename or '').strip()
+    clean_name = re.sub(r'[\x00-\x1f\x7f/\\]', '', os.path.basename(raw_name)).strip() or 'file'
+    ext = clean_name.rsplit('.', 1)[-1].lower() if '.' in clean_name else ''
+    if ext not in rules['extensions']:
+        allowed_str = ', '.join(sorted(rules['extensions']))
+        return None, f"Unsupported file format '.{ext or 'none'}' for {rules['label']}. Allowed: {allowed_str}."
+
+    head = file_obj.stream.read(16)
+    file_obj.stream.seek(0)
+    if not head:
+        return None, 'Uploaded file is empty.'
+    if not content_matches_extension(ext, head):
+        return None, f"File content does not match its '.{ext}' extension."
+
+    cat_dir = os.path.join(TRAINING_UPLOAD_ROOT, category)
+    os.makedirs(cat_dir, exist_ok=True)
+    stored_name = f"{uuid.uuid4().hex}.{ext}"
+    full_path = os.path.join(cat_dir, stored_name)
+    file_obj.save(full_path)
+
+    size = os.path.getsize(full_path)
+    if size == 0:
+        os.remove(full_path)
+        return None, 'Uploaded file is empty.'
+    if size > rules['max_size']:
+        os.remove(full_path)
+        return None, f"File exceeds maximum size of {rules['max_size'] // (1024 * 1024)} MB for {rules['label']}."
+
+    h = hashlib.sha256()
+    with open(full_path, 'rb') as fh:
+        for chunk in iter(lambda: fh.read(65536), b''):
+            h.update(chunk)
+    file_hash = h.hexdigest()
+
+    mime = mimetypes.guess_type(clean_name)[0] or 'application/octet-stream'
+    return {
+        'stored_path': f"{category}/{stored_name}",
+        'full_path': full_path,
+        'original_filename': clean_name[:200],
+        'file_ext': ext,
+        'mime_type': mime,
+        'size_bytes': size,
+        'file_hash': file_hash,
+    }, None
+
+@app.route('/api/admin/materials', methods=['GET'])
+@admin_required
+def admin_list_materials():
+    category = (request.args.get('category') or '').strip()
+    language = (request.args.get('language') or '').strip()
+
+    db = get_db()
+    query = "SELECT * FROM materials WHERE category IN ('video', 'sales_script', 'poster', 'smart_book')"
+    params = []
+    if category:
+        if category not in TRAINING_CATEGORY_RULES:
+            return jsonify({'success': False, 'message': 'Invalid category.'}), 400
+        query += " AND category = ?"
+        params.append(category)
+    if language and language.lower() != 'all':
+        query += " AND language = ?"
+        params.append(language)
+
+    query += " ORDER BY id DESC"
+    rows = db.execute(query, params).fetchall()
+
+    counts = {cat: {'total': 0, 'published': 0, 'unpublished': 0} for cat in TRAINING_CATEGORY_RULES}
+    all_rows = db.execute("SELECT category, is_active FROM materials WHERE category IN ('video', 'sales_script', 'poster', 'smart_book')").fetchall()
+    for r in all_rows:
+        cat_key = r['category']
+        if cat_key in counts:
+            counts[cat_key]['total'] += 1
+            if r['is_active'] == 1:
+                counts[cat_key]['published'] += 1
+            else:
+                counts[cat_key]['unpublished'] += 1
+
+    return jsonify({
+        'success': True,
+        'counts': counts,
+        'items': [serialize_material_row(r, include_admin_fields=True) for r in rows]
+    })
+
+@app.route('/api/admin/materials', methods=['POST'])
+@admin_required
+def admin_create_material():
+    if request.is_json:
+        data = request.get_json(force=True, silent=True) or {}
+        category = (data.get('category') or '').strip()
+        language = (data.get('language') or 'English').strip()
+        title = (data.get('title') or '').strip()[:200]
+        description = (data.get('description') or '').strip()[:500]
+        content = (data.get('content') or '').strip()
+        is_active = 1 if str(data.get('is_active', '1')).lower() in ('1', 'true', 'yes', 'on') else 0
+        file_obj = None
+    else:
+        category = (request.form.get('category') or '').strip()
+        language = (request.form.get('language') or 'English').strip()
+        title = (request.form.get('title') or '').strip()[:200]
+        description = (request.form.get('description') or '').strip()[:500]
+        content = (request.form.get('content') or '').strip()
+        is_active = 1 if str(request.form.get('is_active', '1')).lower() in ('1', 'true', 'yes', 'on') else 0
+        file_obj = request.files.get('file')
+
+    if category not in TRAINING_CATEGORY_RULES:
+        return jsonify({'success': False, 'message': 'Invalid training material category.'}), 400
+    if language not in TRAINING_LANGUAGES:
+        return jsonify({'success': False, 'message': 'Invalid language selected.'}), 400
+    if not title:
+        return jsonify({'success': False, 'message': 'Title is required.'}), 400
+
+    has_file = bool(file_obj and file_obj.filename)
+    if category == 'video':
+        if content and not re.match(r'^https?://', content, re.I):
+            return jsonify({'success': False, 'message': 'Video link must start with http:// or https://.'}), 400
+        if not has_file and not content:
+            return jsonify({'success': False, 'message': 'Upload a video file or provide a valid video URL.'}), 400
+    elif category == 'sales_script':
+        if not has_file and not content:
+            return jsonify({'success': False, 'message': 'Enter sales script content or upload a script file.'}), 400
+    elif category == 'poster':
+        if not has_file:
+            return jsonify({'success': False, 'message': 'Please upload a poster image file (PNG, JPG, GIF, WEBP).'}), 400
+    elif category == 'smart_book':
+        if not has_file:
+            return jsonify({'success': False, 'message': 'Please upload a Sample Smart Book file (PDF, Excel, Word, etc.).'}), 400
+
+    db = get_db()
+    dup_title = db.execute('''SELECT id FROM materials
+                              WHERE category = ? AND language = ? AND LOWER(TRIM(title)) = LOWER(TRIM(?))''',
+                           (category, language, title)).fetchone()
+    if dup_title:
+        return jsonify({'success': False, 'message': 'A material with this title already exists in this category and language.'}), 409
+
+    meta = None
+    if has_file:
+        meta, err = _validate_and_store_training_file(file_obj, category)
+        if err:
+            return jsonify({'success': False, 'message': err}), 400
+
+        dup_file = db.execute("SELECT id, title FROM materials WHERE category = ? AND file_hash = ?",
+                              (category, meta['file_hash'])).fetchone()
+        if dup_file:
+            try:
+                os.remove(meta['full_path'])
+            except OSError:
+                pass
+            return jsonify({'success': False, 'message': f"This exact file is already uploaded under '{dup_file['title']}'."}), 409
+
+        # If a .txt sales script was uploaded with empty textarea content, extract readable text automatically
+        if category == 'sales_script' and meta['file_ext'] == 'txt' and not content:
+            try:
+                with open(meta['full_path'], 'r', encoding='utf-8', errors='ignore') as tf:
+                    content = tf.read(20000).strip()
+            except OSError:
+                pass
+
+    now_ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    cur = db.execute('''INSERT INTO materials
+                          (category, language, title, description, content, file_url,
+                           stored_path, original_filename, file_ext, mime_type, size_bytes, file_hash,
+                           sort_order, is_active, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)''',
+                     (
+                         category, language, title, description, content,
+                         '',
+                         meta['stored_path'] if meta else None,
+                         meta['original_filename'] if meta else None,
+                         meta['file_ext'] if meta else None,
+                         meta['mime_type'] if meta else None,
+                         meta['size_bytes'] if meta else 0,
+                         meta['file_hash'] if meta else None,
+                         is_active, now_ts, now_ts
+                     ))
+    mat_id = cur.lastrowid
+    if meta:
+        db.execute("UPDATE materials SET file_url = ? WHERE id = ?", (f"/api/training/files/{mat_id}", mat_id))
+    db.commit()
+
+    row = db.execute("SELECT * FROM materials WHERE id = ?", (mat_id,)).fetchone()
+    return jsonify({
+        'success': True,
+        'message': f"{TRAINING_CATEGORY_RULES[category]['label']} item saved successfully.",
+        'item': serialize_material_row(row, include_admin_fields=True)
+    }), 201
+
+@app.route('/api/admin/materials/<int:material_id>', methods=['PUT', 'PATCH'])
+@admin_required
+def admin_update_material(material_id):
+    db = get_db()
+    existing = db.execute("SELECT * FROM materials WHERE id = ?", (material_id,)).fetchone()
+    if not existing or existing['category'] not in TRAINING_CATEGORY_RULES:
+        return jsonify({'success': False, 'message': 'Training material not found.'}), 404
+
+    if request.is_json:
+        data = request.get_json(force=True, silent=True) or {}
+        category = (data.get('category') or existing['category']).strip()
+        language = (data.get('language') or existing['language']).strip()
+        title = (data.get('title') if 'title' in data else existing['title']).strip()[:200]
+        description = (data.get('description') if 'description' in data else (existing['description'] or '')).strip()[:500]
+        content = (data.get('content') if 'content' in data else (existing['content'] or '')).strip()
+        is_active = 1 if str(data.get('is_active', existing['is_active'])).lower() in ('1', 'true', 'yes', 'on') else 0
+        file_obj = None
+    else:
+        category = (request.form.get('category') or existing['category']).strip()
+        language = (request.form.get('language') or existing['language']).strip()
+        title = (request.form.get('title') or '').strip()[:200]
+        description = (request.form.get('description') or '').strip()[:500]
+        content = (request.form.get('content') or '').strip()
+        is_active = 1 if str(request.form.get('is_active', existing['is_active'])).lower() in ('1', 'true', 'yes', 'on') else 0
+        file_obj = request.files.get('file')
+
+    if category not in TRAINING_CATEGORY_RULES:
+        return jsonify({'success': False, 'message': 'Invalid category.'}), 400
+    if language not in TRAINING_LANGUAGES:
+        return jsonify({'success': False, 'message': 'Invalid language.'}), 400
+    if not title:
+        return jsonify({'success': False, 'message': 'Title is required.'}), 400
+
+    dup_title = db.execute('''SELECT id FROM materials
+                              WHERE category = ? AND language = ? AND LOWER(TRIM(title)) = LOWER(TRIM(?)) AND id != ?''',
+                           (category, language, title, material_id)).fetchone()
+    if dup_title:
+        return jsonify({'success': False, 'message': 'Another material with this title already exists in this category and language.'}), 409
+
+    has_new_file = bool(file_obj and file_obj.filename)
+    if category == 'video' and content and not re.match(r'^https?://', content, re.I):
+        return jsonify({'success': False, 'message': 'Video link must start with http:// or https://.'}), 400
+    if category == 'video' and not has_new_file and not existing['stored_path'] and not content:
+        return jsonify({'success': False, 'message': 'Provide a video URL or upload a video file.'}), 400
+    if category == 'sales_script' and not has_new_file and not existing['stored_path'] and not content:
+        return jsonify({'success': False, 'message': 'Enter sales script content or upload a file.'}), 400
+    if category in ('poster', 'smart_book') and not has_new_file and not existing['stored_path']:
+        return jsonify({'success': False, 'message': 'Please upload a file for this category.'}), 400
+
+    new_meta = None
+    if has_new_file:
+        new_meta, err = _validate_and_store_training_file(file_obj, category)
+        if err:
+            return jsonify({'success': False, 'message': err}), 400
+
+        dup_file = db.execute("SELECT id, title FROM materials WHERE category = ? AND file_hash = ? AND id != ?",
+                              (category, new_meta['file_hash'], material_id)).fetchone()
+        if dup_file:
+            try:
+                os.remove(new_meta['full_path'])
+            except OSError:
+                pass
+            return jsonify({'success': False, 'message': f"This exact file is already uploaded under '{dup_file['title']}'."}), 409
+
+        if category == 'sales_script' and new_meta['file_ext'] == 'txt' and not content:
+            try:
+                with open(new_meta['full_path'], 'r', encoding='utf-8', errors='ignore') as tf:
+                    content = tf.read(20000).strip()
+            except OSError:
+                pass
+
+    now_ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    old_stored_path = existing['stored_path']
+
+    db.execute('''UPDATE materials
+                  SET category = ?, language = ?, title = ?, description = ?, content = ?,
+                      file_url = ?, stored_path = ?, original_filename = ?, file_ext = ?,
+                      mime_type = ?, size_bytes = ?, file_hash = ?, is_active = ?, updated_at = ?
+                  WHERE id = ?''',
+               (
+                   category, language, title, description, content,
+                   f"/api/training/files/{material_id}" if (new_meta or old_stored_path) else (existing['file_url'] or ''),
+                   new_meta['stored_path'] if new_meta else old_stored_path,
+                   new_meta['original_filename'] if new_meta else existing['original_filename'],
+                   new_meta['file_ext'] if new_meta else existing['file_ext'],
+                   new_meta['mime_type'] if new_meta else existing['mime_type'],
+                   new_meta['size_bytes'] if new_meta else (existing['size_bytes'] or 0),
+                   new_meta['file_hash'] if new_meta else existing['file_hash'],
+                   is_active, now_ts, material_id
+               ))
+    db.commit()
+
+    if new_meta and old_stored_path and old_stored_path != new_meta['stored_path']:
+        delete_training_file(old_stored_path)
+
+    row = db.execute("SELECT * FROM materials WHERE id = ?", (material_id,)).fetchone()
+    return jsonify({
+        'success': True,
+        'message': 'Training material updated successfully.',
+        'item': serialize_material_row(row, include_admin_fields=True)
+    })
+
+@app.route('/api/admin/materials/<int:material_id>/toggle-publish', methods=['POST'])
+@admin_required
+def admin_toggle_material_publish(material_id):
+    db = get_db()
+    existing = db.execute("SELECT id, is_active, category FROM materials WHERE id = ?", (material_id,)).fetchone()
+    if not existing or existing['category'] not in TRAINING_CATEGORY_RULES:
+        return jsonify({'success': False, 'message': 'Training material not found.'}), 404
+
+    new_state = 0 if existing['is_active'] == 1 else 1
+    now_ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    db.execute("UPDATE materials SET is_active = ?, updated_at = ? WHERE id = ?", (new_state, now_ts, material_id))
+    db.commit()
+
+    return jsonify({
+        'success': True,
+        'is_active': new_state,
+        'message': 'Material published.' if new_state == 1 else 'Material unpublished.'
+    })
+
+@app.route('/api/admin/materials/<int:material_id>', methods=['DELETE'])
+@admin_required
+def admin_delete_material(material_id):
+    db = get_db()
+    existing = db.execute("SELECT id, stored_path, category FROM materials WHERE id = ?", (material_id,)).fetchone()
+    if not existing or existing['category'] not in TRAINING_CATEGORY_RULES:
+        return jsonify({'success': False, 'message': 'Training material not found.'}), 404
+
+    db.execute("DELETE FROM materials WHERE id = ?", (material_id,))
+    db.commit()
+    delete_training_file(existing['stored_path'])
+    return jsonify({'success': True, 'message': 'Training material deleted.'})
+
+# -------------------------------------------------------------
+# REPORTS & MEMBER FILE DOWNLOADS
+# -------------------------------------------------------------
 @app.route('/api/reports')
 @login_required
 def get_reports():
@@ -1503,7 +1872,7 @@ def get_reports():
     The admin sees every member's files, labelled with the member, so uploads can be checked in one place.
     """
     user_id = session['user_id']
-    is_admin = session.get('role') == 'admin'
+    is_admin = is_designated_admin_user(g.current_user)
     date_filter = (request.args.get('date') or '').strip()
     db = get_db()
 
@@ -1559,7 +1928,6 @@ def send_member_file(rec, inline=False):
     if not full_path:
         return jsonify({'success': False, 'message': 'File not found on server.'}), 404
     guessed_mime = mimetypes.guess_type(rec['original_name'])[0] or 'application/octet-stream'
-    # Only PDFs and images may be opened in the browser tab; every other type is always a download.
     show_inline = bool(inline) and (rec['file_type'] or classify_file_type(rec['file_ext'])) in ('pdf', 'image')
     response = send_file(full_path, mimetype=guessed_mime, as_attachment=not show_inline,
                          download_name=rec['original_name'], conditional=True)
@@ -1575,8 +1943,7 @@ def download_dynamic_file(file_id):
     rec = db.execute("SELECT * FROM member_files WHERE id = ?", (file_id,)).fetchone()
     if not rec:
         return jsonify({'success': False, 'message': 'File not found.'}), 404
-    if rec['user_id'] != session['user_id'] and session.get('role') != 'admin':
-        # Same answer as "not found" so other members' file ids cannot be probed.
+    if rec['user_id'] != session['user_id'] and not is_designated_admin_user(g.current_user):
         return jsonify({'success': False, 'message': 'File not found.'}), 404
     return send_member_file(rec, inline=(request.args.get('inline') == '1'))
 
@@ -1586,7 +1953,7 @@ def create_report_share_link(file_id):
     """Owner creates a time-limited signed link for one of their own files."""
     db = get_db()
     rec = db.execute("SELECT id, user_id, original_name FROM member_files WHERE id = ?", (file_id,)).fetchone()
-    if not rec or (rec['user_id'] != session['user_id'] and session.get('role') != 'admin'):
+    if not rec or (rec['user_id'] != session['user_id'] and not is_designated_admin_user(g.current_user)):
         return jsonify({'success': False, 'message': 'File not found.'}), 404
     token = share_serializer.dumps({'f': rec['id'], 'u': rec['user_id']})
     share_url = url_for('shared_report_download', token=token, _external=True)
@@ -1789,7 +2156,6 @@ def admin_upload_member_files(user_id):
         saved.append({'id': cur.lastrowid, 'name': display_path, 'size': size})
 
     if saved and customer_id:
-        # Keep the existing Admin Portal order status in sync with the real upload.
         db.execute("UPDATE orders SET uploaded_all_files = 1, status = 'Report Completed', upload_status = 'Completed' WHERE customer_id = ?",
                    (customer_id,))
     db.commit()
@@ -1801,8 +2167,6 @@ def admin_upload_member_files(user_id):
 
 # -------------------------------------------------------------
 # ADMIN-ONLY ADVERTISEMENT MANAGEMENT (3 dashboard advertisement sections)
-# Every route below is protected on the server by @admin_required, so regular users and team members
-# can only READ the advertisements (through /api/dashboard and /api/banners).
 # -------------------------------------------------------------
 @app.route('/api/admin/banners')
 @admin_required
@@ -1856,7 +2220,7 @@ def admin_save_banner(slot):
                       WHERE id = ?''',
                    (title, subtitle, action_url, new_image_url or existing['image_url'], existing['id']))
         if new_image_url and existing['image_url'] != new_image_url:
-            delete_banner_image_file(existing['image_url'])      # the replaced image is removed from disk
+            delete_banner_image_file(existing['image_url'])
     else:
         db.execute('''INSERT INTO banners (title, subtitle, image_url, action_url, is_active, slot)
                       VALUES (?, ?, ?, ?, 1, ?)''', (title, subtitle, new_image_url, action_url, slot))

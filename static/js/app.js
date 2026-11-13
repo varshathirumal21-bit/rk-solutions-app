@@ -1,3 +1,5 @@
+const ADMIN_DESIGNATED_EMAIL = 'varsha.thirumal21@gmail.com';
+
 let currentUser = null;
 let currentBanners = [];
 let bannerTimer = null;
@@ -5,8 +7,58 @@ let currentBannerIdx = 0;
 let tempCustomerPayload = null;
 const screenHistory = [];
 let resendTimerInterval = null;
+let customerSubmitBusy = false;
+let materialSubmitBusy = false;
 
 const currentLoadedScriptsMap = {};
+const adminMaterialsMap = {};
+
+const MATERIAL_CATEGORY_META = {
+  video: {
+    label: 'Training Video',
+    accept: '.mp4,.webm,.mov,.m4v,.avi,.mkv,video/*',
+    hint: 'Supported formats: MP4, WEBM, MOV, M4V, AVI, MKV (up to 200 MB) or provide a video URL above.',
+    contentLabel: 'Video URL (optional if uploading a video file)',
+    contentPlaceholder: 'https://www.youtube.com/watch?v=...',
+    showContent: true,
+    fileLabel: 'Upload Video File'
+  },
+  sales_script: {
+    label: 'Sales Script',
+    accept: '.txt,.pdf,.doc,.docx,.rtf,.odt',
+    hint: 'Supported formats: TXT, PDF, DOC, DOCX, RTF, ODT (up to 50 MB) and/or script text above.',
+    contentLabel: 'Sales Script Content',
+    contentPlaceholder: 'Enter script lines...',
+    showContent: true,
+    fileLabel: 'Attach Script Document (optional if entering text)'
+  },
+  poster: {
+    label: 'Poster',
+    accept: '.png,.jpg,.jpeg,.gif,.webp,image/*',
+    hint: 'Supported formats: PNG, JPG, JPEG, GIF, WEBP (up to 10 MB).',
+    contentLabel: '',
+    contentPlaceholder: '',
+    showContent: false,
+    fileLabel: 'Upload Poster Image *'
+  },
+  smart_book: {
+    label: 'Sample Smart Book',
+    accept: '.pdf,.xls,.xlsx,.xlsm,.csv,.ods,.doc,.docx,.ppt,.pptx,.zip,.txt',
+    hint: 'Supported formats: PDF, XLS, XLSX, CSV, DOC, DOCX, PPT, PPTX, ZIP, TXT (up to 50 MB).',
+    contentLabel: '',
+    contentPlaceholder: '',
+    showContent: false,
+    fileLabel: 'Upload Sample Smart Book File *'
+  }
+};
+
+function isDesignatedAdmin() {
+  return Boolean(
+    currentUser &&
+    currentUser.role === 'admin' &&
+    String(currentUser.email || '').trim().toLowerCase() === ADMIN_DESIGNATED_EMAIL
+  );
+}
 
 document.addEventListener('DOMContentLoaded', async () => {
   cleanInputsOnLoad();
@@ -25,7 +77,7 @@ function cleanInputsOnLoad() {
 
 async function checkSession() {
   try {
-    const res = await fetch('/api/auth/me');
+    const res = await fetch('/api/auth/me', { cache: 'no-store' });
     const data = await res.json();
     if (data.logged_in) {
       currentUser = data.user;
@@ -39,38 +91,75 @@ async function checkSession() {
 }
 
 function showLoginScreen() {
+  closeSidebar();
   document.getElementById('screen-login').classList.remove('hidden');
   document.getElementById('app-shell').classList.add('hidden');
   cleanInputsOnLoad();
+}
+
+function updateSidebarWallet(balance) {
+  const walletEl = document.getElementById('sidebar-wallet-balance');
+  if (walletEl) {
+    const num = Number(balance || 0);
+    walletEl.innerText = `₹${num.toLocaleString()}`;
+  }
+}
+
+function toggleSidebar() {
+  const sidebar = document.getElementById('app-sidebar');
+  const backdrop = document.getElementById('sidebar-backdrop');
+  if (!sidebar) return;
+  const opening = !sidebar.classList.contains('open');
+  sidebar.classList.toggle('open', opening);
+  if (backdrop) backdrop.classList.toggle('hidden', !opening);
+}
+
+function closeSidebar() {
+  const sidebar = document.getElementById('app-sidebar');
+  const backdrop = document.getElementById('sidebar-backdrop');
+  if (sidebar) sidebar.classList.remove('open');
+  if (backdrop) backdrop.classList.add('hidden');
+}
+
+function sidebarNavigate(tabId) {
+  closeSidebar();
+  switchTab(tabId);
 }
 
 function renderAppShell() {
   document.getElementById('screen-login').classList.add('hidden');
   document.getElementById('app-shell').classList.remove('hidden');
 
-  const memberId = currentUser.member_id;
+  const memberId = currentUser.member_id || '';
   const userName = currentUser.name || (currentUser.email ? currentUser.email.split('@')[0] : 'Partner');
+  const adminFlag = isDesignatedAdmin();
 
-  document.getElementById('header-member-id').innerText = memberId;
-  document.getElementById('user-subtext').innerText = `Member ID: ${memberId}`;
+  // Partner ID displayed only on Dashboard directly under "Hi, Partner!"
+  document.getElementById('user-subtext').innerText = memberId;
   document.getElementById('referral-url').value = `https://rksolutions.app/ref/${memberId}`;
 
   document.getElementById('prof-name').innerText = userName;
   document.getElementById('prof-email').innerText = currentUser.email || '---';
   document.getElementById('prof-city').innerText = currentUser.city || 'Coimbatore';
-  document.getElementById('prof-member-id').innerText = `Member ID: ${memberId}`;
+
+  updateSidebarWallet(currentUser.wallet_balance);
 
   const adminBtn = document.getElementById('header-admin-btn');
-  if (adminBtn) adminBtn.classList.toggle('hidden', currentUser.role !== 'admin');
+  if (adminBtn) adminBtn.classList.toggle('hidden', !adminFlag);
 
-  // Only the admin gets the advertisement manager button (the server enforces this too).
+  const sidebarAdminBtn = document.getElementById('sidebar-admin-btn');
+  if (sidebarAdminBtn) sidebarAdminBtn.classList.toggle('hidden', !adminFlag);
+
+  const sidebarMatBtn = document.getElementById('sidebar-admin-materials-btn');
+  if (sidebarMatBtn) sidebarMatBtn.classList.toggle('hidden', !adminFlag);
+
+  // Only the designated admin gets the advertisement manager button (the server enforces this too).
   const adsAdminBox = document.getElementById('ads-admin-actions');
-  if (adsAdminBox) adsAdminBox.classList.toggle('hidden', currentUser.role !== 'admin');
+  if (adsAdminBox) adsAdminBox.classList.toggle('hidden', !adminFlag);
 
   startBannerPolling();
 
-  if (currentUser.role === 'admin') {
-    // Admin always lands on the Admin Team Members page.
+  if (adminFlag) {
     switchTab('admin-team', false);
   } else {
     switchTab('dashboard', false);
@@ -78,6 +167,10 @@ function renderAppShell() {
 }
 
 function switchTab(tabId, addToHistory = true) {
+  if ((tabId === 'admin' || tabId === 'admin-team' || tabId === 'admin-materials') && !isDesignatedAdmin()) {
+    tabId = 'dashboard';
+  }
+
   const currentActive = document.querySelector('.sub-screen.active');
   const currentActiveId = currentActive ? currentActive.id.replace('screen-', '') : null;
 
@@ -87,6 +180,7 @@ function switchTab(tabId, addToHistory = true) {
 
   document.querySelectorAll('.sub-screen').forEach(s => s.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.sidebar-nav-item').forEach(b => b.classList.remove('active'));
 
   const targetScreen = document.getElementById(`screen-${tabId}`);
   if (targetScreen) targetScreen.classList.add('active');
@@ -104,6 +198,13 @@ function switchTab(tabId, addToHistory = true) {
     }
   });
 
+  document.querySelectorAll('.sidebar-nav-item').forEach(btn => {
+    const dt = btn.getAttribute('data-tab');
+    if (dt === tabId || (tabId.startsWith('training') && dt === 'training')) {
+      btn.classList.add('active');
+    }
+  });
+
   const titles = {
     'dashboard': 'Dashboard',
     'customers': 'Customer List',
@@ -117,16 +218,19 @@ function switchTab(tabId, addToHistory = true) {
     'profile': 'My Profile',
     'payment-success': 'Payment Confirmation',
     'admin': 'Admin Portal',
-    'admin-team': 'Admin Team Members'
+    'admin-team': 'Admin Team Members',
+    'admin-materials': 'Manage Training Materials'
   };
   document.getElementById('header-title').innerText = titles[tabId] || 'RK Solutions';
 
   if (tabId === 'dashboard') loadDashboard();
   if (tabId === 'customers') loadCustomerList();
+  if (tabId === 'training') updateTrainingHubCounts();
   if (tabId === 'reports') loadReports();
   if (tabId === 'admin') loadAdminPanel();
   document.body.classList.toggle('admin-team-wide', tabId === 'admin-team');
   if (tabId === 'admin-team') loadAdminTeam();
+  if (tabId === 'admin-materials') loadAdminMaterials();
 }
 
 function navigatePreviousScreen() {
@@ -236,13 +340,13 @@ async function sendLoginEmailOTP() {
   try {
     const res = await fetch('/api/auth/send-otp', {
       method: 'POST',
-      headers: { 
+      headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json'
       },
       body: JSON.stringify({ email: email, purpose: 'LOGIN' })
     });
-    
+
     const data = await res.json();
     if (data.success) {
       alert(data.message);
@@ -306,7 +410,7 @@ async function verifyLoginEmailOTP() {
   try {
     const res = await fetch('/api/auth/verify-otp-login', {
       method: 'POST',
-      headers: { 
+      headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json'
       },
@@ -338,25 +442,47 @@ async function logoutApp() {
 // --------------------------------------------------------
 async function loadDashboard() {
   if (currentUser && currentUser.member_id) {
-    document.getElementById('user-subtext').innerText = `Member ID: ${currentUser.member_id}`;
-    document.getElementById('header-member-id').innerText = currentUser.member_id;
+    document.getElementById('user-subtext').innerText = currentUser.member_id;
   }
 
   const dateVal = document.getElementById('dash-date-filter').value;
   let url = '/api/dashboard';
-  if (dateVal) url += `?date=${dateVal}`;
+  if (dateVal) url += `?date=${encodeURIComponent(dateVal)}`;
 
-  const res = await fetch(url);
+  const res = await fetch(url, { cache: 'no-store' });
   const data = await res.json();
   if (data.success) {
     document.getElementById('metric-membership').innerText = data.metrics.membership_count;
     document.getElementById('metric-smartbook').innerText = data.metrics.smartbook_count;
-    document.getElementById('metric-earnings').innerText = `₹${data.metrics.paid_earnings.toLocaleString()}`;
-    document.getElementById('metric-wallet').innerText = `₹${data.metrics.wallet_balance.toLocaleString()}`;
+    document.getElementById('metric-earnings').innerText = `₹${Number(data.metrics.paid_earnings || 0).toLocaleString()}`;
+    document.getElementById('metric-total-customers').innerText = data.metrics.total_customers || 0;
+
+    updateDashboardStatusCounts(data.metrics.status_counts);
+    updateSidebarWallet(data.metrics.wallet_balance);
+
+    if (currentUser) {
+      currentUser.wallet_balance = data.metrics.wallet_balance;
+    }
 
     currentBanners = data.banners;
     startBannerRotation();
   }
+}
+
+function updateDashboardStatusCounts(counts) {
+  if (!counts) return;
+  ['All', 'New', 'Called', 'Interested', 'Joined'].forEach(label => {
+    const el = document.getElementById('dash-pill-' + label);
+    if (el) el.textContent = `${label} (${counts[label] || 0})`;
+  });
+}
+
+function goToCustomersWithStatus(status) {
+  activeStatusFilter = status;
+  document.querySelectorAll('#screen-customers .status-pills .pill').forEach(p => {
+    p.classList.toggle('active', p.id === `pill-${status}`);
+  });
+  switchTab('customers');
 }
 
 function onDashboardDateChange() { loadDashboard(); }
@@ -421,8 +547,6 @@ function renderBannerSlide(idx) {
 
 function setBanner(idx) { renderBannerSlide(idx); }
 
-// Advertisements are managed by the admin only. Users' dashboards re-check them regularly,
-// so a change made by the admin shows up without the user having to log in again.
 let bannerPollTimer = null;
 
 function bannerSignature(list) {
@@ -431,14 +555,14 @@ function bannerSignature(list) {
 
 async function refreshBannersNow(force = false) {
   try {
-    const res = await fetch('/api/banners');
+    const res = await fetch('/api/banners', { cache: 'no-store' });
     if (!res.ok) return;
     const data = await res.json();
     if (data.success && (force || bannerSignature(data.banners) !== bannerSignature(currentBanners))) {
       currentBanners = data.banners;
       startBannerRotation();
     }
-  } catch (err) { /* network hiccup: try again on the next cycle */ }
+  } catch (err) { /* ignore transient network error */ }
 }
 
 function startBannerPolling() {
@@ -459,7 +583,7 @@ const AD_MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const AD_ALLOWED_EXT = ['png', 'jpg', 'jpeg', 'gif', 'webp'];
 
 function openAdsManager() {
-  if (!currentUser || currentUser.role !== 'admin') return;
+  if (!isDesignatedAdmin()) return;
   openModal('modal-manage-ads');
   loadAdsManager();
 }
@@ -468,7 +592,7 @@ async function loadAdsManager() {
   const box = document.getElementById('ads-slots-container');
   box.innerHTML = '<div class="text-center p-3 text-gray"><i class="fa-solid fa-spinner fa-spin"></i> Loading advertisements...</div>';
   try {
-    const res = await fetch('/api/admin/banners');
+    const res = await fetch('/api/admin/banners', { cache: 'no-store' });
     const data = await res.json();
     if (!data.success) {
       box.innerHTML = `<div class="team-msg team-msg-warn">${escapeHtml(data.message || 'Unable to load advertisements.')}</div>`;
@@ -612,9 +736,14 @@ function shareSocial(network) {
 // --------------------------------------------------------
 let activeStatusFilter = 'All';
 
+function toggleDateFilter() {
+  const df = document.getElementById('cust-date-filter');
+  if (df) df.focus();
+}
+
 function filterByStatus(status, btn) {
   activeStatusFilter = status;
-  document.querySelectorAll('.status-pills .pill').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('#screen-customers .status-pills .pill').forEach(p => p.classList.remove('active'));
   btn.classList.add('active');
   loadCustomerList();
 }
@@ -623,16 +752,17 @@ async function loadCustomerList() {
   const search = document.getElementById('cust-search').value.trim();
   const dateVal = document.getElementById('cust-date-filter').value;
 
-  let url = `/api/customers?status=${activeStatusFilter}`;
+  let url = `/api/customers?status=${encodeURIComponent(activeStatusFilter)}`;
   if (search) url += `&search=${encodeURIComponent(search)}`;
-  if (dateVal) url += `&date=${dateVal}`;
+  if (dateVal) url += `&date=${encodeURIComponent(dateVal)}`;
 
-  const res = await fetch(url);
+  const res = await fetch(url, { cache: 'no-store' });
   const data = await res.json();
+  updateStatusCounts(data.status_counts);
   const container = document.getElementById('customer-list-container');
   container.innerHTML = '';
 
-  if (data.customers.length === 0) {
+  if (!data.customers || data.customers.length === 0) {
     container.innerHTML = `<div class="text-center text-gray p-3">No customers found.</div>`;
     return;
   }
@@ -642,15 +772,15 @@ async function loadCustomerList() {
     card.className = 'customer-item-card';
     card.innerHTML = `
       <div class="cust-details">
-        <strong>${c.name}</strong>
-        <span>${c.phone} • ${c.city || 'Tamil Nadu'}</span>
-        <div><span class="badge-status badge-${c.status}">${c.status}</span> <span class="text-sm text-gray">${c.created_date}</span></div>
+        <strong>${escapeHtml(c.name)}</strong>
+        <span>${escapeHtml(c.phone)} • ${escapeHtml(c.city || 'Tamil Nadu')}</span>
+        <div><span class="badge-status badge-${escapeHtml(c.status)}">${escapeHtml(c.status)}</span> <span class="text-sm text-gray">${escapeHtml(c.created_date)}</span></div>
       </div>
       <div class="cust-actions">
-        <a href="https://wa.me/91${c.phone.replace(/[^0-9]/g, '').slice(-10)}" target="_blank" class="whatsapp-chat-btn" title="Open WhatsApp Chat">
+        <a href="https://wa.me/91${String(c.phone || '').replace(/[^0-9]/g, '').slice(-10)}" target="_blank" class="whatsapp-chat-btn" title="Open WhatsApp Chat">
           <i class="fa-brands fa-whatsapp"></i>
         </a>
-        <button class="btn btn-outline btn-sm" onclick="openEditCustomerModal(${c.id}, '${escapeQuotes(c.name)}', '${c.status}', '${escapeQuotes(c.comments || '')}')">
+        <button class="btn btn-outline btn-sm" onclick="openEditCustomerModal(${c.id}, '${escapeQuotes(c.name)}', '${escapeQuotes(c.status)}', '${escapeQuotes(c.comments || '')}')">
           Edit
         </button>
       </div>
@@ -659,12 +789,20 @@ async function loadCustomerList() {
   });
 }
 
+function updateStatusCounts(counts) {
+  if (!counts) return;
+  ['All', 'New', 'Called', 'Interested', 'Joined'].forEach(label => {
+    const el = document.getElementById('pill-' + label);
+    if (el) el.textContent = `${label} (${counts[label] || 0})`;
+  });
+}
+
 function escapeQuotes(str) {
   return (str || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
 }
 
 async function openAddCustomerModal() {
-  const res = await fetch('/api/customers/next-id');
+  const res = await fetch('/api/customers/next-id', { cache: 'no-store' });
   const data = await res.json();
   document.getElementById('cust-auto-id').value = data.next_id;
   document.getElementById('cust-name').value = '';
@@ -722,21 +860,40 @@ function sendScreenshotWhatsApp() {
 }
 
 async function confirmPaymentAndSaveCustomer() {
-  const res = await fetch('/api/customers', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(tempCustomerPayload)
-  });
-  const data = await res.json();
-  if (data.success) {
-    closeModal('modal-payment-upi');
-    document.getElementById('success-cust-id').innerText = data.customer_id;
-    document.getElementById('success-cust-name').innerText = tempCustomerPayload.name;
-    const amountVal = tempCustomerPayload.plan_name === 'Smart Book' ? '₹300.00' : '₹955.00';
-    document.getElementById('success-amount').innerText = amountVal;
-    switchTab('payment-success');
-  } else {
-    alert(data.message);
+  if (customerSubmitBusy || !tempCustomerPayload) return;
+  customerSubmitBusy = true;
+  const confirmBtn = document.getElementById('btn-confirm-save-customer');
+  if (confirmBtn) {
+    confirmBtn.disabled = true;
+    confirmBtn.innerText = 'Saving...';
+  }
+
+  try {
+    const res = await fetch('/api/customers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(tempCustomerPayload)
+    });
+    const data = await res.json();
+    if (data.success) {
+      closeModal('modal-payment-upi');
+      document.getElementById('success-cust-id').innerText = data.customer_id;
+      document.getElementById('success-cust-name').innerText = tempCustomerPayload.name;
+      const amountVal = tempCustomerPayload.plan_name === 'Smart Book' ? '₹300.00' : '₹955.00';
+      document.getElementById('success-amount').innerText = amountVal;
+      tempCustomerPayload = null;
+      switchTab('payment-success');
+    } else {
+      alert(data.message);
+    }
+  } catch (err) {
+    alert('Failed to save customer. Please try again.');
+  } finally {
+    customerSubmitBusy = false;
+    if (confirmBtn) {
+      confirmBtn.disabled = false;
+      confirmBtn.innerText = 'Confirm & Submit';
+    }
   }
 }
 
@@ -772,12 +929,38 @@ function exportData(fmt) {
 }
 
 // --------------------------------------------------------
-// ADVANCED TRAINING & RESOURCES - SUBPAGES & LANGUAGE FILTERS
+// USER-SIDE TRAINING & RESOURCES (DYNAMICALLY INTEGRATED WITH ADMIN CRUD)
+// Only PUBLISHED (is_active = 1) materials are returned by the backend.
 // --------------------------------------------------------
 let currentTrainingLanguage = 'English';
 
 function onLanguageChanged() {
   currentTrainingLanguage = document.getElementById('training-language-select').value;
+  updateTrainingHubCounts();
+}
+
+async function updateTrainingHubCounts() {
+  const lang = document.getElementById('training-language-select')?.value || currentTrainingLanguage;
+  try {
+    const res = await fetch(`/api/training/resources?language=${encodeURIComponent(lang)}`, { cache: 'no-store' });
+    const data = await res.json();
+    if (!data.success || !data.counts) return;
+
+    const vCount = data.counts.video || 0;
+    const sCount = data.counts.sales_script || 0;
+    const pCount = data.counts.poster || 0;
+    const bCount = data.counts.smart_book || 0;
+
+    const elV = document.getElementById('hub-desc-video');
+    const elS = document.getElementById('hub-desc-sales_script');
+    const elP = document.getElementById('hub-desc-poster');
+    const elB = document.getElementById('hub-desc-smart_book');
+
+    if (elV) elV.innerText = `${vCount} published tutorial video${vCount === 1 ? '' : 's'}`;
+    if (elS) elS.innerText = `${sCount} published sales script${sCount === 1 ? '' : 's'}`;
+    if (elP) elP.innerText = `${pCount} published marketing poster${pCount === 1 ? '' : 's'}`;
+    if (elB) elB.innerText = `${bCount} published sample handbook${bCount === 1 ? '' : 's'}`;
+  } catch (err) { /* ignore */ }
 }
 
 function returnToTrainingHub() {
@@ -787,7 +970,7 @@ function returnToTrainingHub() {
 
 async function navigateToTrainingSection(category) {
   currentTrainingLanguage = document.getElementById('training-language-select').value;
-  
+
   if (category === 'video') {
     switchTab('training-videos');
     document.getElementById('badge-lang-videos').innerText = currentTrainingLanguage;
@@ -825,28 +1008,42 @@ async function loadTrainingVideosPage(lang) {
   container.innerHTML = '<div class="text-center p-3 text-gray"><i class="fa-solid fa-spinner fa-spin"></i> Loading videos...</div>';
 
   try {
-    const res = await fetch(`/api/training/resources?category=video&language=${encodeURIComponent(lang)}`);
+    const res = await fetch(`/api/training/resources?category=video&language=${encodeURIComponent(lang)}`, { cache: 'no-store' });
     const data = await res.json();
     container.innerHTML = '';
 
     if (!data.items || data.items.length === 0) {
-      container.innerHTML = `<div class="empty-state-box"><i class="fa-solid fa-film"></i><p>No training videos available for ${lang}.</p></div>`;
+      container.innerHTML = `<div class="empty-state-box"><i class="fa-solid fa-film"></i><p>No published training videos available for ${escapeHtml(lang)}.</p></div>`;
       return;
     }
 
     data.items.forEach((item) => {
       const card = document.createElement('div');
-      card.className = 'script-card-item';
+      card.className = 'script-card-item video-card-item';
+      const safeLink = /^https?:\/\//i.test(item.content || '') ? item.content : '';
+      const videoPlayerHtml = item.has_file
+        ? `<video class="training-video-player" controls preload="metadata" src="${escapeHtml(item.view_url)}"></video>`
+        : '';
+      const descLine = item.description ? `<div class="text-sm text-gray">${escapeHtml(item.description)}</div>` : '';
+      const linkBtn = safeLink
+        ? `<a href="${escapeHtml(safeLink)}" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-sm"><i class="fa-solid fa-play"></i> Watch</a>`
+        : '';
+      const dlBtn = item.has_file
+        ? `<a href="${escapeHtml(item.download_url)}" class="btn btn-outline btn-sm"><i class="fa-solid fa-download"></i> Download</a>`
+        : '';
+
       card.innerHTML = `
-        <div style="flex: 1;">
-          <span class="script-card-title">${item.title}</span>
-          <div class="text-sm text-gray"><i class="fa-regular fa-clock"></i> 30 Mins Tutorial Module</div>
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">
+          <div style="flex:1;">
+            <span class="script-card-title">${escapeHtml(item.title)}</span>
+            ${descLine}
+          </div>
+          <div class="script-actions-row">
+            ${linkBtn}
+            ${dlBtn}
+          </div>
         </div>
-        <div class="script-actions-row">
-          <a href="${item.content || 'https://www.youtube.com'}" target="_blank" class="btn btn-primary btn-sm">
-            <i class="fa-solid fa-play"></i> Watch
-          </a>
-        </div>
+        ${videoPlayerHtml}
       `;
       container.appendChild(card);
     });
@@ -875,36 +1072,48 @@ async function loadSalesScriptsPage(lang) {
   container.innerHTML = '<div class="text-center p-3 text-gray"><i class="fa-solid fa-spinner fa-spin"></i> Loading scripts...</div>';
 
   try {
-    const res = await fetch(`/api/training/resources?category=sales_script&language=${encodeURIComponent(lang)}`);
+    const res = await fetch(`/api/training/resources?category=sales_script&language=${encodeURIComponent(lang)}`, { cache: 'no-store' });
     const data = await res.json();
     container.innerHTML = '';
 
     if (!data.items || data.items.length === 0) {
-      container.innerHTML = `<div class="empty-state-box"><i class="fa-solid fa-file-circle-xmark"></i><p>No sales scripts available for ${lang}.</p></div>`;
+      container.innerHTML = `<div class="empty-state-box"><i class="fa-solid fa-file-circle-xmark"></i><p>No published sales scripts available for ${escapeHtml(lang)}.</p></div>`;
       return;
     }
 
     data.items.forEach((item) => {
+      const normalizedContent = normalizeToSingleBullets(item.content);
       currentLoadedScriptsMap[item.id] = {
         id: item.id,
         title: item.title,
-        content: normalizeToSingleBullets(item.content),
+        content: normalizedContent,
         language: item.language
       };
+
+      const hasText = Boolean(normalizedContent);
+      const viewBtn = hasText
+        ? `<button class="btn btn-outline btn-sm" onclick="handleScriptView(${Number(item.id)})"><i class="fa-regular fa-eye"></i> View</button>`
+        : (item.has_file && item.file_ext === 'pdf'
+          ? `<a href="${escapeHtml(item.view_url)}" target="_blank" class="btn btn-outline btn-sm"><i class="fa-regular fa-eye"></i> View</a>`
+          : '');
+      const copyBtn = hasText
+        ? `<button class="btn btn-primary btn-sm" onclick="handleScriptCopy(${Number(item.id)})"><i class="fa-regular fa-copy"></i> Copy</button>`
+        : '';
+      const dlBtn = item.has_file
+        ? `<a href="${escapeHtml(item.download_url)}" class="btn btn-outline btn-sm"><i class="fa-solid fa-download"></i> Download</a>`
+        : '';
 
       const card = document.createElement('div');
       card.className = 'script-card-item';
       card.innerHTML = `
-        <div class="script-card-title">
-          ${item.title}
+        <div style="flex:1;">
+          <div class="script-card-title">${escapeHtml(item.title)}</div>
+          ${item.description ? `<div class="text-sm text-gray">${escapeHtml(item.description)}</div>` : ''}
         </div>
         <div class="script-actions-row">
-          <button class="btn btn-outline btn-sm" onclick="handleScriptView(${item.id})">
-            <i class="fa-regular fa-eye"></i> View
-          </button>
-          <button class="btn btn-primary btn-sm" onclick="handleScriptCopy(${item.id})">
-            <i class="fa-regular fa-copy"></i> Copy
-          </button>
+          ${viewBtn}
+          ${copyBtn}
+          ${dlBtn}
         </div>
       `;
       container.appendChild(card);
@@ -980,15 +1189,12 @@ async function executeClipboardCopy(text) {
   }
 }
 
-// --------------------------------------------------------
-// FAQ (LANGUAGE-SPECIFIC NATIVE QUESTIONS & ANSWERS)
-// --------------------------------------------------------
 async function loadFaqPage(lang) {
   const container = document.getElementById('faq-list-container');
   container.innerHTML = '<div class="text-center p-3 text-gray"><i class="fa-solid fa-spinner fa-spin"></i> Loading FAQs...</div>';
 
   try {
-    const res = await fetch(`/api/training/resources?category=faq&language=${encodeURIComponent(lang)}`);
+    const res = await fetch(`/api/training/resources?category=faq&language=${encodeURIComponent(lang)}`, { cache: 'no-store' });
     const data = await res.json();
     container.innerHTML = '';
 
@@ -1018,10 +1224,10 @@ async function loadFaqPage(lang) {
       };
       card.innerHTML = `
         <div class="faq-q-text">
-          <span>Q${idx + 1}: ${item.title}</span>
+          <span>Q${idx + 1}: ${escapeHtml(item.title)}</span>
           <i class="fa-solid fa-chevron-down"></i>
         </div>
-        <div class="faq-a-text hidden">${item.content}</div>
+        <div class="faq-a-text hidden">${escapeHtml(item.content)}</div>
       `;
       container.appendChild(card);
     });
@@ -1035,23 +1241,26 @@ async function loadPostersPage(lang) {
   container.innerHTML = '<div class="text-center p-3 text-gray" style="grid-column: span 2;"><i class="fa-solid fa-spinner fa-spin"></i> Loading posters...</div>';
 
   try {
-    const res = await fetch(`/api/training/resources?category=poster&language=${encodeURIComponent(lang)}`);
+    const res = await fetch(`/api/training/resources?category=poster&language=${encodeURIComponent(lang)}`, { cache: 'no-store' });
     const data = await res.json();
     container.innerHTML = '';
 
     if (!data.items || data.items.length === 0) {
-      container.innerHTML = `<div class="empty-state-box" style="grid-column: span 2;"><i class="fa-solid fa-images"></i><p>No posters available for ${lang}.</p></div>`;
+      container.innerHTML = `<div class="empty-state-box" style="grid-column: span 2;"><i class="fa-solid fa-images"></i><p>No published posters available for ${escapeHtml(lang)}.</p></div>`;
       return;
     }
 
     data.items.forEach((item) => {
+      const imgSrc = item.has_file ? item.view_url : item.file_url;
+      const dlHref = item.has_file ? item.download_url : item.file_url;
       const card = document.createElement('div');
       card.className = 'poster-preview-card';
       card.innerHTML = `
-        <img src="${item.file_url || 'https://images.unsplash.com/photo-1557804506-669a67965ba0?w=600'}" class="poster-img-element" alt="Poster">
+        <img src="${escapeHtml(imgSrc)}" class="poster-img-element" alt="${escapeHtml(item.title)}">
         <div style="padding: 8px;">
-          <strong class="text-sm" style="display:block; margin-bottom: 6px;">${item.title}</strong>
-          <a href="${item.file_url || 'https://images.unsplash.com/photo-1557804506-669a67965ba0?w=600'}" download="Poster_${lang}_${item.id}.jpg" target="_blank" class="btn btn-outline btn-sm w-100">
+          <strong class="text-sm" style="display:block; margin-bottom: 4px;">${escapeHtml(item.title)}</strong>
+          ${item.description ? `<div class="text-sm text-gray" style="margin-bottom:6px;">${escapeHtml(item.description)}</div>` : ''}
+          <a href="${escapeHtml(dlHref)}" class="btn btn-outline btn-sm w-100">
             <i class="fa-solid fa-download"></i> Download
           </a>
         </div>
@@ -1068,31 +1277,38 @@ async function loadSmartBooksPage(lang) {
   container.innerHTML = '<div class="text-center p-3 text-gray"><i class="fa-solid fa-spinner fa-spin"></i> Loading materials...</div>';
 
   try {
-    const res = await fetch(`/api/training/resources?category=smart_book&language=${encodeURIComponent(lang)}`);
+    const res = await fetch(`/api/training/resources?category=smart_book&language=${encodeURIComponent(lang)}`, { cache: 'no-store' });
     const data = await res.json();
     container.innerHTML = '';
 
     if (!data.items || data.items.length === 0) {
-      container.innerHTML = `<div class="empty-state-box"><i class="fa-solid fa-book-bookmark"></i><p>No sample materials available for ${lang}.</p></div>`;
+      container.innerHTML = `<div class="empty-state-box"><i class="fa-solid fa-book-bookmark"></i><p>No published sample materials available for ${escapeHtml(lang)}.</p></div>`;
       return;
     }
 
     data.items.forEach((item) => {
-      const isPdf = item.content === 'pdf' || item.title.includes('[PDF]');
+      const iconCls = reportFileIconClass(item.file_type);
+      const canInline = item.has_file && (item.file_type === 'pdf' || item.file_type === 'image');
+      const viewBtn = canInline
+        ? `<a href="${escapeHtml(item.view_url)}" target="_blank" class="btn btn-secondary btn-sm"><i class="fa-regular fa-eye"></i> View</a>`
+        : '';
+      const dlBtn = item.has_file
+        ? `<a href="${escapeHtml(item.download_url)}" class="btn btn-outline btn-sm"><i class="fa-solid fa-download"></i> Download${item.file_ext ? ' ' + escapeHtml(item.file_ext.toUpperCase()) : ''}</a>`
+        : '';
+
       const card = document.createElement('div');
       card.className = 'script-card-item';
       card.innerHTML = `
-        <div class="file-name-meta" style="margin-bottom: 8px; flex: 1;">
-          <i class="${isPdf ? 'fa-solid fa-file-pdf file-icon-pdf' : 'fa-solid fa-file-excel file-icon-excel'}"></i>
+        <div class="file-name-meta" style="flex: 1;">
+          <i class="${iconCls}"></i>
           <div>
-            <strong>${item.title}</strong>
-            <div class="text-sm text-gray">${item.description || 'Verified syllabus material'}</div>
+            <strong>${escapeHtml(item.title)}</strong>
+            <div class="text-sm text-gray">${escapeHtml(item.description || item.original_filename || 'Sample Smart Book material')}</div>
           </div>
         </div>
         <div class="script-actions-row">
-          <button class="btn btn-outline btn-sm" onclick="downloadSampleSmartBookFile(${item.id}, '${isPdf ? 'pdf' : 'xlsx'}')">
-            <i class="fa-solid fa-download"></i> Download ${isPdf ? 'PDF' : 'Excel'}
-          </button>
+          ${viewBtn}
+          ${dlBtn}
         </div>
       `;
       container.appendChild(card);
@@ -1102,44 +1318,262 @@ async function loadSmartBooksPage(lang) {
   }
 }
 
-function downloadSampleSmartBookFile(id, ext) {
-  window.open(`/api/reports/download-file/smartbook_${id}_${ext}`, '_blank');
+// --------------------------------------------------------
+// ADMIN TRAINING MATERIAL MANAGEMENT (4 SECTIONS + FULL CRUD)
+// --------------------------------------------------------
+function openAdminMaterialsPage() {
+  if (!isDesignatedAdmin()) return;
+  switchTab('admin-materials');
 }
 
-// --------------------------------------------------------
-// ADMIN MATERIAL MANAGEMENT
-// --------------------------------------------------------
 function openAdminUploadModal() {
+  openAdminMaterialModal('video');
+}
+
+function onAdminMaterialCategoryChange() {
+  const cat = document.getElementById('adm-mat-cat').value;
+  const meta = MATERIAL_CATEGORY_META[cat] || MATERIAL_CATEGORY_META.video;
+  const contentGroup = document.getElementById('adm-mat-content-group');
+  const contentLabel = document.getElementById('adm-mat-content-label');
+  const contentInput = document.getElementById('adm-mat-content');
+  const fileLabel = document.getElementById('adm-mat-file-label');
+  const fileInput = document.getElementById('adm-mat-file');
+  const fileHint = document.getElementById('adm-mat-file-hint');
+
+  if (contentGroup) contentGroup.classList.toggle('hidden', !meta.showContent);
+  if (contentLabel) contentLabel.innerText = meta.contentLabel;
+  if (contentInput) contentInput.placeholder = meta.contentPlaceholder;
+  if (fileLabel) fileLabel.innerText = meta.fileLabel;
+  if (fileInput) fileInput.setAttribute('accept', meta.accept);
+  if (fileHint) fileHint.innerText = meta.hint;
+}
+
+function openAdminMaterialModal(category = 'video') {
+  if (!isDesignatedAdmin()) return;
+  document.getElementById('admin-material-form').reset();
+  document.getElementById('adm-mat-id').value = '';
+  document.getElementById('adm-mat-cat').value = category;
+  document.getElementById('adm-mat-lang').value = 'English';
+  document.getElementById('adm-mat-active').checked = true;
+  document.getElementById('adm-mat-modal-title').innerText = `Add ${MATERIAL_CATEGORY_META[category]?.label || 'Training Material'}`;
+  document.getElementById('adm-mat-submit-btn').innerText = 'Save Material';
+  document.getElementById('adm-mat-error').innerHTML = '';
+  const curFileEl = document.getElementById('adm-mat-current-file');
+  curFileEl.innerText = '';
+  curFileEl.classList.add('hidden');
+
+  onAdminMaterialCategoryChange();
   openModal('modal-admin-upload');
+}
+
+function openEditMaterialModal(materialId) {
+  if (!isDesignatedAdmin()) return;
+  const item = adminMaterialsMap[materialId];
+  if (!item) {
+    alert('Material not found. Please refresh.');
+    return;
+  }
+  document.getElementById('admin-material-form').reset();
+  document.getElementById('adm-mat-id').value = item.id;
+  document.getElementById('adm-mat-cat').value = item.category;
+  document.getElementById('adm-mat-lang').value = item.language;
+  document.getElementById('adm-mat-title').value = item.title || '';
+  document.getElementById('adm-mat-desc').value = item.description || '';
+  document.getElementById('adm-mat-content').value = item.content || '';
+  document.getElementById('adm-mat-active').checked = item.is_active === 1;
+  document.getElementById('adm-mat-modal-title').innerText = `Edit ${MATERIAL_CATEGORY_META[item.category]?.label || 'Material'}`;
+  document.getElementById('adm-mat-submit-btn').innerText = 'Update Material';
+  document.getElementById('adm-mat-error').innerHTML = '';
+
+  const curFileEl = document.getElementById('adm-mat-current-file');
+  if (item.has_file) {
+    curFileEl.innerText = `Current file: ${item.original_filename || 'Attached file'} (${formatFileSize(item.size_bytes)}). Select a new file only to replace it.`;
+    curFileEl.classList.remove('hidden');
+  } else {
+    curFileEl.innerText = '';
+    curFileEl.classList.add('hidden');
+  }
+
+  onAdminMaterialCategoryChange();
+  openModal('modal-admin-upload');
+}
+
+async function loadAdminMaterials() {
+  if (!isDesignatedAdmin()) return;
+  const langFilter = document.getElementById('admin-mat-lang-filter')?.value || 'all';
+  const categories = ['video', 'sales_script', 'poster', 'smart_book'];
+  categories.forEach(cat => {
+    const box = document.getElementById(`admin-mat-list-${cat}`);
+    if (box) box.innerHTML = '<div class="text-sm text-gray">Loading...</div>';
+  });
+
+  try {
+    let url = '/api/admin/materials';
+    if (langFilter && langFilter !== 'all') url += `?language=${encodeURIComponent(langFilter)}`;
+    const res = await fetch(url, { cache: 'no-store' });
+    const data = await res.json();
+
+    if (!data.success) {
+      categories.forEach(cat => {
+        const box = document.getElementById(`admin-mat-list-${cat}`);
+        if (box) box.innerHTML = `<div class="team-msg team-msg-warn">${escapeHtml(data.message || 'Access denied.')}</div>`;
+      });
+      return;
+    }
+
+    Object.keys(adminMaterialsMap).forEach(k => delete adminMaterialsMap[k]);
+    const grouped = { video: [], sales_script: [], poster: [], smart_book: [] };
+    (data.items || []).forEach(item => {
+      adminMaterialsMap[item.id] = item;
+      if (grouped[item.category]) grouped[item.category].push(item);
+    });
+
+    categories.forEach(cat => {
+      const box = document.getElementById(`admin-mat-list-${cat}`);
+      if (!box) return;
+      const list = grouped[cat];
+      if (!list.length) {
+        box.innerHTML = '<div class="text-sm text-gray">No materials uploaded in this section yet.</div>';
+        return;
+      }
+
+      box.innerHTML = '';
+      list.forEach(item => {
+        const card = document.createElement('div');
+        card.className = 'admin-mat-card';
+        const isPub = item.is_active === 1;
+        const fileInfo = item.has_file
+          ? `<span class="admin-mat-badge">${escapeHtml(item.original_filename)} (${formatFileSize(item.size_bytes)})</span>`
+          : (item.category === 'video' && item.content ? `<span class="admin-mat-badge">Video Link</span>` : '');
+        const viewHref = item.has_file ? item.view_url : (item.category === 'video' && item.content ? item.content : '');
+        const previewBtn = viewHref
+          ? `<a href="${escapeHtml(viewHref)}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm"><i class="fa-regular fa-eye"></i> Preview</a>`
+          : '';
+
+        card.innerHTML = `
+          <div class="admin-mat-card-info">
+            <strong>${escapeHtml(item.title)}</strong>
+            ${item.description ? `<p>${escapeHtml(item.description)}</p>` : ''}
+            <div class="admin-mat-badges">
+              <span class="admin-mat-badge">${escapeHtml(item.language)}</span>
+              <span class="admin-mat-badge ${isPub ? 'admin-mat-badge-pub' : 'admin-mat-badge-unpub'}">${isPub ? 'Published' : 'Unpublished'}</span>
+              ${fileInfo}
+            </div>
+          </div>
+          <div class="admin-mat-actions">
+            ${previewBtn}
+            <button type="button" class="btn btn-outline btn-sm" onclick="toggleMaterialPublish(${Number(item.id)})">
+              ${isPub ? 'Unpublish' : 'Publish'}
+            </button>
+            <button type="button" class="btn btn-primary btn-sm" onclick="openEditMaterialModal(${Number(item.id)})">
+              <i class="fa-solid fa-pen"></i> Edit
+            </button>
+            <button type="button" class="btn btn-danger btn-sm" onclick="deleteAdminMaterial(${Number(item.id)})">
+              <i class="fa-solid fa-trash"></i> Delete
+            </button>
+          </div>
+        `;
+        box.appendChild(card);
+      });
+    });
+  } catch (err) {
+    categories.forEach(cat => {
+      const box = document.getElementById(`admin-mat-list-${cat}`);
+      if (box) box.innerHTML = '<div class="team-msg team-msg-warn">Failed to load materials. Please try again.</div>';
+    });
+  }
 }
 
 async function submitAdminMaterial(e) {
   e.preventDefault();
-  const form = document.getElementById('admin-material-form');
-  const formData = new FormData();
+  if (materialSubmitBusy || !isDesignatedAdmin()) return;
 
-  formData.append('category', document.getElementById('adm-mat-cat').value);
-  formData.append('language', document.getElementById('adm-mat-lang').value);
-  formData.append('title', document.getElementById('adm-mat-title').value);
-  formData.append('description', document.getElementById('adm-mat-desc').value);
-  formData.append('content', document.getElementById('adm-mat-content').value);
-
+  const editId = document.getElementById('adm-mat-id').value.trim();
+  const cat = document.getElementById('adm-mat-cat').value;
+  const lang = document.getElementById('adm-mat-lang').value;
+  const title = document.getElementById('adm-mat-title').value.trim();
+  const desc = document.getElementById('adm-mat-desc').value.trim();
+  const content = document.getElementById('adm-mat-content').value.trim();
+  const isActive = document.getElementById('adm-mat-active').checked ? '1' : '0';
   const fileInput = document.getElementById('adm-mat-file');
+  const errBox = document.getElementById('adm-mat-error');
+  const submitBtn = document.getElementById('adm-mat-submit-btn');
+
+  errBox.innerHTML = '';
+
+  const formData = new FormData();
+  formData.append('category', cat);
+  formData.append('language', lang);
+  formData.append('title', title);
+  formData.append('description', desc);
+  formData.append('content', content);
+  formData.append('is_active', isActive);
   if (fileInput.files.length > 0) {
     formData.append('file', fileInput.files[0]);
   }
 
-  const res = await fetch('/api/admin/materials', {
-    method: 'POST',
-    body: formData
-  });
-  const data = await res.json();
-  if (data.success) {
-    alert(data.message);
-    closeModal('modal-admin-upload');
-    form.reset();
-  } else {
-    alert(data.message || 'Error uploading material');
+  materialSubmitBusy = true;
+  const prevBtnText = submitBtn.innerText;
+  submitBtn.disabled = true;
+  submitBtn.innerText = 'Saving...';
+
+  try {
+    const endpoint = editId ? `/api/admin/materials/${editId}` : '/api/admin/materials';
+    const method = editId ? 'PUT' : 'POST';
+    const res = await fetch(endpoint, { method, body: formData });
+    let data = null;
+    try { data = await res.json(); } catch (err2) { data = null; }
+
+    if (data && data.success) {
+      closeModal('modal-admin-upload');
+      document.getElementById('admin-material-form').reset();
+      await loadAdminMaterials();
+      updateTrainingHubCounts();
+    } else {
+      errBox.innerHTML = `<div class="team-msg team-msg-warn">${escapeHtml((data && data.message) || `Error saving material (${res.status}).`)}</div>`;
+    }
+  } catch (err) {
+    errBox.innerHTML = '<div class="team-msg team-msg-warn">Network error while saving material. Please try again.</div>';
+  } finally {
+    materialSubmitBusy = false;
+    submitBtn.disabled = false;
+    submitBtn.innerText = prevBtnText;
+  }
+}
+
+async function toggleMaterialPublish(materialId) {
+  if (!isDesignatedAdmin()) return;
+  try {
+    const res = await fetch(`/api/admin/materials/${materialId}/toggle-publish`, { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      await loadAdminMaterials();
+      updateTrainingHubCounts();
+    } else {
+      alert(data.message || 'Unable to change publish status.');
+    }
+  } catch (err) {
+    alert('Network error. Please try again.');
+  }
+}
+
+async function deleteAdminMaterial(materialId) {
+  if (!isDesignatedAdmin()) return;
+  const item = adminMaterialsMap[materialId];
+  const label = item ? `"${item.title}"` : 'this training material';
+  if (!confirm(`Delete ${label}? It will be permanently removed from both Admin and User views.`)) return;
+
+  try {
+    const res = await fetch(`/api/admin/materials/${materialId}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (data.success) {
+      await loadAdminMaterials();
+      updateTrainingHubCounts();
+    } else {
+      alert(data.message || 'Unable to delete material.');
+    }
+  } catch (err) {
+    alert('Network error. Please try again.');
   }
 }
 
@@ -1169,6 +1603,7 @@ function reportFileIconClass(type) {
     case 'word': return 'fa-solid fa-file-word file-icon-word';
     case 'ppt': return 'fa-solid fa-file-powerpoint file-icon-ppt';
     case 'image': return 'fa-solid fa-file-image file-icon-image';
+    case 'video': return 'fa-solid fa-file-video file-icon-other';
     case 'zip': return 'fa-solid fa-file-zipper file-icon-zip';
     case 'text': return 'fa-solid fa-file-lines file-icon-other';
     default: return 'fa-solid fa-file file-icon-other';
@@ -1183,7 +1618,7 @@ async function loadReports() {
   const container = document.getElementById('reports-container');
   let data;
   try {
-    const res = await fetch(url);
+    const res = await fetch(url, { cache: 'no-store' });
     data = await res.json();
   } catch (err) {
     container.innerHTML = `<div class="text-center text-gray p-3">Unable to load reports. Please try again.</div>`;
@@ -1300,7 +1735,8 @@ async function submitPasswordReset() {
 // ADMIN PANEL
 // --------------------------------------------------------
 async function loadAdminPanel() {
-  const res = await fetch('/api/admin/requests');
+  if (!isDesignatedAdmin()) return;
+  const res = await fetch('/api/admin/requests', { cache: 'no-store' });
   const data = await res.json();
   if (!data.success) return;
 
@@ -1313,15 +1749,15 @@ async function loadAdminPanel() {
   data.requests.forEach(r => {
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td>${r.request_date}</td>
-      <td>${r.name}</td>
-      <td>${r.code}</td>
-      <td><a href="${r.youtube_url || '#'}" target="_blank">View Channel</a></td>
-      <td>${r.keyword_1 || '-'}</td>
-      <td>${r.keyword_2 || '-'}</td>
-      <td>${r.keyword_3 || '-'}</td>
+      <td>${escapeHtml(r.request_date)}</td>
+      <td>${escapeHtml(r.name)}</td>
+      <td>${escapeHtml(r.code)}</td>
+      <td><a href="${escapeHtml(r.youtube_url || '#')}" target="_blank">View Channel</a></td>
+      <td>${escapeHtml(r.keyword_1 || '-')}</td>
+      <td>${escapeHtml(r.keyword_2 || '-')}</td>
+      <td>${escapeHtml(r.keyword_3 || '-')}</td>
       <td>
-        <button class="btn btn-sm ${r.uploaded_all_files ? 'btn-primary' : 'btn-secondary'}" onclick="toggleAdminOrder(${r.order_id})">
+        <button class="btn btn-sm ${r.uploaded_all_files ? 'btn-primary' : 'btn-secondary'}" onclick="toggleAdminOrder(${Number(r.order_id)})">
           ${r.uploaded_all_files ? 'Yes (Completed)' : 'No (Pending)'}
         </button>
       </td>
@@ -1331,6 +1767,7 @@ async function loadAdminPanel() {
 }
 
 async function toggleAdminOrder(orderId) {
+  if (!isDesignatedAdmin()) return;
   const res = await fetch(`/api/admin/requests/${orderId}/toggle-status`, { method: 'POST' });
   const data = await res.json();
   if (data.success) {
@@ -1352,7 +1789,7 @@ const TEAM_BATCH_MAX_FILES = 10;
 const TEAM_BATCH_MAX_BYTES = 80 * 1024 * 1024;
 
 function openAdminTeamPage() {
-  if (!currentUser || currentUser.role !== 'admin') return;
+  if (!isDesignatedAdmin()) return;
   switchTab('admin-team');
 }
 
@@ -1362,9 +1799,10 @@ function formatDateDMY(isoDate) {
 }
 
 async function loadAdminTeam() {
+  if (!isDesignatedAdmin()) return;
   const tbody = document.getElementById('team-members-tbody');
   try {
-    const res = await fetch('/api/admin/team-members');
+    const res = await fetch('/api/admin/team-members', { cache: 'no-store' });
     const data = await res.json();
     if (!data.success) {
       tbody.innerHTML = `<tr><td colspan="8" class="team-empty">${escapeHtml(data.message || 'Unable to load team members.')}</td></tr>`;
@@ -1412,6 +1850,7 @@ async function loadAdminTeam() {
 }
 
 function openTeamUploadModal(idx) {
+  if (!isDesignatedAdmin()) return;
   const m = adminTeamRows[idx];
   if (!m) return;
   activeTeamTarget = m;
@@ -1442,7 +1881,7 @@ async function loadTeamExistingFiles() {
   try {
     let url = `/api/admin/team-members/${activeTeamTarget.user_id}/files`;
     if (activeTeamTarget.request_id) url += `?customer_id=${encodeURIComponent(activeTeamTarget.request_id)}`;
-    const res = await fetch(url);
+    const res = await fetch(url, { cache: 'no-store' });
     const data = await res.json();
     if (!data.success || data.files.length === 0) {
       box.innerHTML = '<span class="text-sm text-gray">No files uploaded yet.</span>';
@@ -1513,7 +1952,7 @@ function clearTeamPendingFiles() {
 }
 
 async function startTeamUpload() {
-  if (teamUploadBusy || !activeTeamTarget) return;
+  if (teamUploadBusy || !activeTeamTarget || !isDesignatedAdmin()) return;
   if (teamPendingFiles.length === 0) {
     alert('Please select files or a folder first.');
     return;

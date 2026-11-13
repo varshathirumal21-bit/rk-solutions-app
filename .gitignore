@@ -6,3 +6,5 @@ database.db
 *.db
 private_uploads/
 github-index-backup.html
+
+private_training_uploads/

@@ -88,6 +88,30 @@ TRAINING_CATEGORY_RULES = {
     },
 }
 
+EXT_MIME_MAP = {
+    'mp4': 'video/mp4',
+    'webm': 'video/webm',
+    'mov': 'video/quicktime',
+    'm4v': 'video/x-m4v',
+    'avi': 'video/x-msvideo',
+    'mkv': 'video/x-matroska',
+    'png': 'image/png',
+    'jpg': 'image/jpeg',
+    'jpeg': 'image/jpeg',
+    'gif': 'image/gif',
+    'webp': 'image/webp',
+    'pdf': 'application/pdf',
+    'txt': 'text/plain; charset=utf-8',
+    'csv': 'text/csv; charset=utf-8',
+    'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'xls': 'application/vnd.ms-excel',
+    'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'doc': 'application/msword',
+    'pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'ppt': 'application/vnd.ms-powerpoint',
+    'zip': 'application/zip',
+}
+
 VALID_CUSTOMER_STATUSES = ('New', 'Called', 'Interested', 'Joined')
 
 def classify_file_type(ext: str) -> str:
@@ -153,7 +177,7 @@ def delete_training_file(stored_rel_path: str):
 def delete_banner_image_file(image_url):
     """Removes an uploaded advertisement image from disk (external http(s) image URLs are left alone)."""
     if image_url and image_url.startswith(BANNER_URL_PREFIX):
-        path = os.path.join(BANNER_UPLOADS, os.path.basename(image_url))   # basename => no path traversal
+        path = os.path.join(BANNER_UPLOADS, os.path.basename(image_url))
         try:
             if os.path.isfile(path):
                 os.remove(path)
@@ -174,10 +198,50 @@ def compute_status_counts(rows):
     return counts
 
 # -------------------------------------------------------------
+# WALLET CREDIT & TRANSACTION HISTORY HELPERS
+# PDF / Smart Book Sale -> Rs. 10
+# Membership Sale       -> Rs. 100
+# Strict duplicate protection via unique DB index + explicit check.
+# -------------------------------------------------------------
+def get_sale_credit_info(plan_name: str):
+    if 'Membership' in (plan_name or ''):
+        return 'membership_sale', 100.0, 'Membership Sale Commission'
+    return 'smart_book_sale', 10.0, 'Smart Book / PDF Sale Commission'
+
+def credit_wallet_for_sale(db, user_id: int, customer_id: str, plan_name: str, customer_name: str = ''):
+    """
+    Credits the employee's wallet once for a successful customer sale (status = Joined).
+    Returns (credited: bool, amount: float).
+    """
+    if not user_id or not customer_id:
+        return False, 0.0
+    existing = db.execute('''SELECT id FROM wallet_transactions
+                           WHERE user_id = ? AND customer_id = ?
+                             AND tx_type IN ('smart_book_sale', 'membership_sale')''',
+                          (user_id, customer_id)).fetchone()
+    if existing:
+        return False, 0.0
+
+    tx_type, amount, base_desc = get_sale_credit_info(plan_name)
+    desc = f"{base_desc} ({customer_name})" if customer_name else base_desc
+    now_ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    try:
+        db.execute('''INSERT INTO wallet_transactions
+                        (user_id, customer_id, tx_type, description, amount,
+                         payment_status, payment_method, payment_ref, created_by, created_at)
+                      VALUES (?, ?, ?, ?, ?, 'Credited', 'Auto Sale Credit', ?, ?, ?)''',
+                   (user_id, customer_id, tx_type, desc, amount, customer_id, user_id, now_ts))
+        db.execute("UPDATE users SET wallet_balance = COALESCE(wallet_balance, 0) + ? WHERE id = ?",
+                   (amount, user_id))
+        db.commit()
+        return True, amount
+    except sqlite3.IntegrityError:
+        db.rollback()
+        return False, 0.0
+
+# -------------------------------------------------------------
 # AUTOMATIC CUSTOMER REPORTS (1 PDF + 4 EXCEL FILES PER CUSTOMER)
-# Built from the customer data whenever a customer is added (by an admin or any team member) and
-# refreshed when the customer's status changes. They are stored in the same private storage as the
-# admin uploads and appear in the owner's Reports tab, so download / share work exactly the same.
 # -------------------------------------------------------------
 AUTO_REPORT_SOURCE = 'auto'
 
@@ -200,7 +264,7 @@ def _make_workbook_bytes(sheets):
             for ci, v in enumerate(row, 1):
                 cell = ws.cell(row=ri, column=ci, value=v)
                 if isinstance(v, str):
-                    cell.data_type = 's'      # customer text must never be interpreted as a formula
+                    cell.data_type = 's'
         for ci in range(1, len(headers) + 1):
             longest = max([len(str(headers[ci - 1]))] + [len(str(r[ci - 1] if ci - 1 < len(r) else '')) for r in rows])
             ws.column_dimensions[get_column_letter(ci)].width = min(max(longest + 4, 14), 70)
@@ -271,7 +335,6 @@ def generate_customer_reports(db, customer_id):
     Creates (or refreshes) the five automatic report files for one customer:
     1 PDF + 4 Excel files, stored privately and listed in the owner's Reports tab.
     Never raises: a report problem must not stop a customer from being saved.
-    Returns the number of files created.
     """
     written_paths = []
     try:
@@ -332,10 +395,9 @@ def generate_customer_reports(db, customer_id):
                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
                        (owner['id'], owner['member_id'], customer_id, display_name, display_name,
                         f"{member_dir_name}/{stored_name}", ext, classify_file_type(ext),
-                        mimetypes.guess_type(display_name)[0] or 'application/octet-stream',
+                        EXT_MIME_MAP.get(ext) or mimetypes.guess_type(display_name)[0] or 'application/octet-stream',
                         len(data), owner['id'], report_date, AUTO_REPORT_SOURCE))
 
-        # The new set is complete: now retire the previous automatic set (if any).
         for r in old_rows:
             old_path = resolve_private_path(r['stored_path'])
             if old_path:
@@ -388,10 +450,6 @@ def hash_otp(otp_code: str) -> str:
     return hashlib.sha256(otp_code.encode('utf-8')).hexdigest()
 
 def check_and_increment_daily_usage(db) -> bool:
-    """
-    Enforces Brevo Free Plan limit of 300 emails/day.
-    Returns True if quota is available, False if the limit is exceeded.
-    """
     today_str = datetime.date.today().isoformat()
     row = db.execute("SELECT emails_sent FROM daily_email_usage WHERE usage_date = ?", (today_str,)).fetchone()
     
@@ -405,9 +463,6 @@ def check_and_increment_daily_usage(db) -> bool:
     return True
 
 def send_brevo_email_otp(recipient_email: str, otp_code: str) -> tuple:
-    """
-    Delivers a real 6-digit OTP email using Brevo's REST API v3.
-    """
     url = "https://api.brevo.com/v3/smtp/email"
     headers = {
         "accept": "application/json",
@@ -536,8 +591,8 @@ def init_db():
             city TEXT DEFAULT 'Coimbatore',
             member_id TEXT UNIQUE NOT NULL,
             role TEXT DEFAULT 'partner',
-            wallet_balance REAL DEFAULT 1200.0,
-            paid_earnings REAL DEFAULT 8250.0,
+            wallet_balance REAL DEFAULT 0.0,
+            paid_earnings REAL DEFAULT 0.0,
             referral_code TEXT UNIQUE,
             account_status TEXT DEFAULT 'active',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -568,8 +623,8 @@ def init_db():
                 city TEXT DEFAULT 'Coimbatore',
                 member_id TEXT UNIQUE NOT NULL,
                 role TEXT DEFAULT 'partner',
-                wallet_balance REAL DEFAULT 1200.0,
-                paid_earnings REAL DEFAULT 8250.0,
+                wallet_balance REAL DEFAULT 0.0,
+                paid_earnings REAL DEFAULT 0.0,
                 referral_code TEXT UNIQUE,
                 account_status TEXT DEFAULT 'active',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -662,7 +717,27 @@ def init_db():
         if 'upload_status' not in order_cols:
             c.execute("ALTER TABLE orders ADD COLUMN upload_status TEXT DEFAULT 'Pending'")
 
-        # 6. Materials Table (with private file metadata & duplicate-prevention hash)
+        # 5b. Wallet Transactions Table (Sale Credits, Manual Credits, Manual Admin Payouts)
+        c.execute('''CREATE TABLE IF NOT EXISTS wallet_transactions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            customer_id TEXT,
+            tx_type TEXT NOT NULL,
+            description TEXT,
+            amount REAL NOT NULL,
+            payment_status TEXT DEFAULT 'Credited',
+            payment_method TEXT,
+            payment_ref TEXT,
+            created_by INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )''')
+        c.execute("CREATE INDEX IF NOT EXISTS idx_wallet_tx_user ON wallet_transactions(user_id, id DESC)")
+        c.execute('''CREATE UNIQUE INDEX IF NOT EXISTS idx_wallet_unique_sale
+                     ON wallet_transactions(user_id, customer_id)
+                     WHERE customer_id IS NOT NULL AND tx_type IN ('smart_book_sale', 'membership_sale')''')
+
+        # 6. Materials Table
         c.execute('''CREATE TABLE IF NOT EXISTS materials (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             category TEXT NOT NULL,
@@ -763,13 +838,10 @@ def init_db():
 
         # -------------------------------------------------------------
         # DESIGNATED SINGLE ADMIN SEEDING & ENFORCEMENT (varsha.thirumal21@gmail.com)
-        # Ensures ONLY varsha.thirumal21@gmail.com holds the Admin role; any previous admin
-        # account is cleanly demoted to partner without breaking unique member_id constraints.
         # -------------------------------------------------------------
         c.execute("SELECT id FROM users WHERE LOWER(email) = ?", (ADMIN_DESIGNATED_EMAIL,))
         designated_row = c.fetchone()
 
-        # Temporarily clear ADMIN01 / REF-ADMIN from any non-designated account
         c.execute("SELECT id FROM users WHERE (role = 'admin' OR member_id = 'ADMIN01' OR referral_code = 'REF-ADMIN') AND LOWER(COALESCE(email, '')) != ?",
                   (ADMIN_DESIGNATED_EMAIL,))
         old_admins = c.fetchall()
@@ -784,8 +856,8 @@ def init_db():
                              member_id = 'ADMIN01', referral_code = 'REF-ADMIN', account_status = 'active'
                          WHERE id = ?''', (ADMIN_DESIGNATED_EMAIL, designated_row[0]))
         else:
-            c.execute('''INSERT INTO users (name, email, phone, password_hash, city, member_id, role, account_status, referral_code)
-                         VALUES ('RK Admin', ?, NULL, ?, 'Chennai', 'ADMIN01', 'admin', 'active', 'REF-ADMIN')''',
+            c.execute('''INSERT INTO users (name, email, phone, password_hash, city, member_id, role, wallet_balance, paid_earnings, account_status, referral_code)
+                         VALUES ('RK Admin', ?, NULL, ?, 'Chennai', 'ADMIN01', 'admin', 0.0, 0.0, 'active', 'REF-ADMIN')''',
                       (ADMIN_DESIGNATED_EMAIL, generate_password_hash('admin123')))
 
         # Sequential IDs for partners
@@ -822,11 +894,7 @@ def init_db():
             c.execute('''INSERT INTO orders (user_id, customer_id, plan_name, amount, status, upload_status, uploaded_all_files)
                          VALUES (1, '2026-00001', 'Smart Book', 300.0, 'Processed', 'Completed', 1)''')
 
-        # -------------------------------------------------------------
-        # ONE-TIME CLEANUP OF LEGACY HARDCODED TRAINING MATERIAL DUMMIES
-        # Training materials in the 4 managed categories (video, sales_script, poster, smart_book)
-        # now come strictly from Admin Panel CRUD stored in SQLite (no hardcoded records).
-        # -------------------------------------------------------------
+        # One-time cleanup of legacy hardcoded dummy training rows
         c.execute("SELECT value FROM app_settings WHERE key = 'legacy_dummy_materials_purged_v1'")
         if c.fetchone() is None:
             c.execute('''DELETE FROM materials
@@ -1063,13 +1131,12 @@ def verify_email_otp_login():
                 name = email.split('@')[0].capitalize()
 
             ref_code = f"REF-{member_id}"
-            db.execute('''INSERT INTO users (name, email, phone, member_id, role, referral_code, account_status)
-                          VALUES (?, ?, NULL, ?, ?, ?, 'active')''',
+            db.execute('''INSERT INTO users (name, email, phone, member_id, role, wallet_balance, paid_earnings, referral_code, account_status)
+                          VALUES (?, ?, NULL, ?, ?, 0.0, 0.0, ?, 'active')''',
                        (name, email, member_id, role, ref_code))
             db.commit()
             user = db.execute("SELECT * FROM users WHERE LOWER(email) = ?", (email,)).fetchone()
         else:
-            # Enforce designated Admin role strictly by email
             expected_role = 'admin' if (user['email'] or '').strip().lower() == ADMIN_DESIGNATED_EMAIL else 'partner'
             if user['role'] != expected_role:
                 db.execute("UPDATE users SET role = ? WHERE id = ?", (expected_role, user['id']))
@@ -1094,8 +1161,8 @@ def verify_email_otp_login():
                 'member_id': user['member_id'],
                 'city': user['city'],
                 'role': user['role'],
-                'wallet_balance': user['wallet_balance'],
-                'paid_earnings': user['paid_earnings'],
+                'wallet_balance': float(user['wallet_balance'] or 0),
+                'paid_earnings': float(user['paid_earnings'] or 0),
                 'referral_code': user['referral_code']
             }
         }), 200
@@ -1168,14 +1235,14 @@ def me():
             'city': user['city'],
             'role': effective_role,
             'account_status': user['account_status'],
-            'wallet_balance': user['wallet_balance'],
-            'paid_earnings': user['paid_earnings'],
+            'wallet_balance': float(user['wallet_balance'] or 0),
+            'paid_earnings': float(user['paid_earnings'] or 0),
             'referral_code': user['referral_code']
         }
     })
 
 # -------------------------------------------------------------
-# DASHBOARD, CRM & MATERIAL APIS
+# DASHBOARD, CRM & WALLET APIS
 # -------------------------------------------------------------
 @app.route('/api/dashboard')
 @login_required
@@ -1217,8 +1284,8 @@ def dashboard_metrics():
             'smartbook_count': smartbook_count,
             'total_customers': len(cust_rows),
             'status_counts': status_counts,
-            'wallet_balance': user['wallet_balance'] if user else 0.0,
-            'paid_earnings': user['paid_earnings'] if user else 0.0
+            'wallet_balance': float(user['wallet_balance'] or 0) if user else 0.0,
+            'paid_earnings': float(user['paid_earnings'] or 0) if user else 0.0
         },
         'banners': [dict(b) for b in banners]
     })
@@ -1226,7 +1293,6 @@ def dashboard_metrics():
 @app.route('/api/banners')
 @login_required
 def public_banners():
-    """Read-only list of the admin's advertisements. Every logged-in user / team member can call this."""
     db = get_db()
     rows = db.execute("SELECT * FROM banners WHERE is_active = 1 AND slot IS NOT NULL ORDER BY slot ASC LIMIT 3").fetchall()
     return jsonify({'success': True, 'banners': [dict(r) for r in rows]})
@@ -1263,20 +1329,32 @@ def manage_customers():
         city = location or 'Tamil Nadu'
         today_str = datetime.date.today().isoformat()
 
+        # Payment is completed before submission -> customer status automatically becomes 'Joined'
         db.execute('''INSERT INTO customers (user_id, customer_id, name, phone, city, location, plan_name, 
                                              youtube_url, keyword_1, keyword_2, keyword_3, comments, status, created_date)
-                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'New', ?)''',
+                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Joined', ?)''',
                    (user_id, customer_id, name, clean_mobile, city, location, plan_name, youtube_url, kw1, kw2, kw3, comments, today_str))
         
         amount = 955.0 if 'Membership' in plan_name else 300.0
         db.execute('''INSERT INTO orders (user_id, customer_id, plan_name, amount, status, upload_status)
-                      VALUES (?, ?, ?, ?, 'Pending', 'Pending')''', (user_id, customer_id, plan_name, amount))
+                      VALUES (?, ?, ?, ?, 'Payment Completed', 'Pending')''', (user_id, customer_id, plan_name, amount))
         db.commit()
 
+        # Automatically credit employee's wallet once (Rs. 10 for Smart Book / PDF, Rs. 100 for Membership)
+        credited, credit_amount = credit_wallet_for_sale(db, user_id, customer_id, plan_name, name)
         reports_created = generate_customer_reports(db, customer_id)
 
-        return jsonify({'success': True, 'message': 'Customer added successfully!', 'customer_id': customer_id,
-                        'reports_generated': reports_created})
+        user_row = db.execute("SELECT wallet_balance, paid_earnings FROM users WHERE id = ?", (user_id,)).fetchone()
+        return jsonify({
+            'success': True,
+            'message': 'Customer added successfully!',
+            'customer_id': customer_id,
+            'status': 'Joined',
+            'wallet_credited': credit_amount if credited else 0.0,
+            'wallet_balance': float(user_row['wallet_balance'] or 0) if user_row else 0.0,
+            'paid_earnings': float(user_row['paid_earnings'] or 0) if user_row else 0.0,
+            'reports_generated': reports_created
+        })
 
     status = request.args.get('status')
     search = request.args.get('search')
@@ -1324,9 +1402,9 @@ def update_customer_status(id):
 
     db = get_db()
     if is_admin:
-        customer = db.execute("SELECT id, customer_id FROM customers WHERE id = ?", (id,)).fetchone()
+        customer = db.execute("SELECT id, user_id, customer_id, name, plan_name FROM customers WHERE id = ?", (id,)).fetchone()
     else:
-        customer = db.execute("SELECT id, customer_id FROM customers WHERE id = ? AND user_id = ?", (id, user_id)).fetchone()
+        customer = db.execute("SELECT id, user_id, customer_id, name, plan_name FROM customers WHERE id = ? AND user_id = ?", (id, user_id)).fetchone()
 
     if not customer:
         return jsonify({'success': False, 'message': 'Customer record not found'}), 200
@@ -1337,9 +1415,21 @@ def update_customer_status(id):
         db.execute("UPDATE customers SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (new_status, id))
     db.commit()
 
+    wallet_credited = 0.0
+    if new_status == 'Joined':
+        credited, amt = credit_wallet_for_sale(db, customer['user_id'], customer['customer_id'], customer['plan_name'], customer['name'])
+        if credited:
+            wallet_credited = amt
+
     generate_customer_reports(db, customer['customer_id'])
 
-    return jsonify({'success': True, 'message': 'Status updated successfully.'})
+    viewer_row = db.execute("SELECT wallet_balance FROM users WHERE id = ?", (user_id,)).fetchone()
+    return jsonify({
+        'success': True,
+        'message': 'Status updated successfully.',
+        'wallet_credited': wallet_credited,
+        'wallet_balance': float(viewer_row['wallet_balance'] or 0) if viewer_row else 0.0
+    })
 
 @app.route('/api/customers/export/<fmt>')
 @login_required
@@ -1438,8 +1528,210 @@ def export_customers(fmt):
     return jsonify({'error': 'Unsupported format'}), 200
 
 # -------------------------------------------------------------
+# WALLET & TRANSACTION HISTORY APIS (USER + ADMIN)
+# -------------------------------------------------------------
+def serialize_wallet_tx(row):
+    return {
+        'id': row['id'],
+        'user_id': row['user_id'],
+        'customer_id': row['customer_id'] or '',
+        'tx_type': row['tx_type'],
+        'description': row['description'] or '',
+        'amount': float(row['amount'] or 0),
+        'payment_status': row['payment_status'] or 'Credited',
+        'payment_method': row['payment_method'] or '',
+        'payment_ref': row['payment_ref'] or '',
+        'created_at': str(row['created_at'] or ''),
+    }
+
+@app.route('/api/wallet')
+@login_required
+def get_my_wallet():
+    user_id = session['user_id']
+    db = get_db()
+    user = db.execute("SELECT id, name, member_id, wallet_balance, paid_earnings FROM users WHERE id = ?",
+                      (user_id,)).fetchone()
+    rows = db.execute("SELECT * FROM wallet_transactions WHERE user_id = ? ORDER BY id DESC",
+                      (user_id,)).fetchall()
+    return jsonify({
+        'success': True,
+        'wallet_balance': float(user['wallet_balance'] or 0) if user else 0.0,
+        'paid_earnings': float(user['paid_earnings'] or 0) if user else 0.0,
+        'transactions': [serialize_wallet_tx(r) for r in rows]
+    })
+
+@app.route('/api/admin/wallets')
+@admin_required
+def admin_list_wallets():
+    db = get_db()
+    employees = db.execute('''
+        SELECT u.id, u.name, u.email, u.member_id, u.wallet_balance, u.paid_earnings,
+               (SELECT COUNT(*) FROM wallet_transactions w WHERE w.user_id = u.id) AS tx_count,
+               (SELECT COALESCE(SUM(w.amount), 0) FROM wallet_transactions w
+                 WHERE w.user_id = u.id AND w.tx_type IN ('smart_book_sale', 'membership_sale', 'manual_credit')) AS total_credited,
+               (SELECT COALESCE(SUM(w.amount), 0) FROM wallet_transactions w
+                 WHERE w.user_id = u.id AND w.tx_type = 'payout' AND w.payment_status = 'Paid') AS total_paid,
+               (SELECT COUNT(*) FROM wallet_transactions w
+                 WHERE w.user_id = u.id AND w.tx_type = 'payout' AND w.payment_status = 'Pending') AS pending_payouts
+        FROM users u
+        WHERE u.role != 'admin'
+        ORDER BY u.id ASC''').fetchall()
+    return jsonify({
+        'success': True,
+        'employees': [{
+            'id': r['id'],
+            'name': r['name'],
+            'email': r['email'] or '',
+            'member_id': r['member_id'],
+            'wallet_balance': float(r['wallet_balance'] or 0),
+            'paid_earnings': float(r['paid_earnings'] or 0),
+            'tx_count': int(r['tx_count'] or 0),
+            'total_credited': float(r['total_credited'] or 0),
+            'total_paid': float(r['total_paid'] or 0),
+            'pending_payouts': int(r['pending_payouts'] or 0),
+        } for r in employees]
+    })
+
+@app.route('/api/admin/wallets/<int:user_id>/transactions')
+@admin_required
+def admin_employee_wallet_history(user_id):
+    db = get_db()
+    emp = db.execute("SELECT id, name, email, member_id, role, wallet_balance, paid_earnings FROM users WHERE id = ?",
+                     (user_id,)).fetchone()
+    if not emp or emp['role'] == 'admin':
+        return jsonify({'success': False, 'message': 'Employee not found.'}), 404
+    rows = db.execute("SELECT * FROM wallet_transactions WHERE user_id = ? ORDER BY id DESC", (user_id,)).fetchall()
+    return jsonify({
+        'success': True,
+        'employee': {
+            'id': emp['id'],
+            'name': emp['name'],
+            'email': emp['email'] or '',
+            'member_id': emp['member_id'],
+            'wallet_balance': float(emp['wallet_balance'] or 0),
+            'paid_earnings': float(emp['paid_earnings'] or 0),
+        },
+        'transactions': [serialize_wallet_tx(r) for r in rows]
+    })
+
+@app.route('/api/admin/wallets/<int:user_id>/credit', methods=['POST'])
+@admin_required
+def admin_add_wallet_credit(user_id):
+    data = request.get_json(force=True, silent=True) or {}
+    try:
+        amount = round(float(data.get('amount', 0)), 2)
+    except (TypeError, ValueError):
+        amount = 0.0
+    description = (data.get('description') or 'Manual Wallet Credit by Admin').strip()[:200]
+    if amount <= 0:
+        return jsonify({'success': False, 'message': 'Please enter a valid credit amount greater than 0.'}), 400
+
+    db = get_db()
+    emp = db.execute("SELECT id, name, role, wallet_balance FROM users WHERE id = ?", (user_id,)).fetchone()
+    if not emp or emp['role'] == 'admin':
+        return jsonify({'success': False, 'message': 'Employee not found.'}), 404
+
+    now_ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    db.execute('''INSERT INTO wallet_transactions
+                    (user_id, customer_id, tx_type, description, amount,
+                     payment_status, payment_method, payment_ref, created_by, created_at)
+                  VALUES (?, NULL, 'manual_credit', ?, ?, 'Credited', 'Admin Credit', 'Manual Credit', ?, ?)''',
+               (user_id, description, amount, session['user_id'], now_ts))
+    db.execute("UPDATE users SET wallet_balance = COALESCE(wallet_balance, 0) + ? WHERE id = ?", (amount, user_id))
+    db.commit()
+
+    updated = db.execute("SELECT wallet_balance, paid_earnings FROM users WHERE id = ?", (user_id,)).fetchone()
+    return jsonify({
+        'success': True,
+        'message': f"₹{amount:,.2f} credited to {emp['name']}'s wallet.",
+        'wallet_balance': float(updated['wallet_balance'] or 0),
+        'paid_earnings': float(updated['paid_earnings'] or 0)
+    })
+
+@app.route('/api/admin/wallets/<int:user_id>/payout', methods=['POST'])
+@admin_required
+def admin_record_manual_payout(user_id):
+    data = request.get_json(force=True, silent=True) or {}
+    try:
+        amount = round(float(data.get('amount', 0)), 2)
+    except (TypeError, ValueError):
+        amount = 0.0
+    payment_method = (data.get('payment_method') or 'UPI').strip()
+    if payment_method not in ('UPI', 'Bank Transfer'):
+        return jsonify({'success': False, 'message': 'Payment method must be UPI or Bank Transfer.'}), 400
+    payment_status = (data.get('payment_status') or 'Paid').strip()
+    if payment_status not in ('Paid', 'Pending'):
+        return jsonify({'success': False, 'message': 'Payment status must be Paid or Pending.'}), 400
+    payment_ref = (data.get('payment_ref') or '').strip()[:160]
+    description = (data.get('description') or f'Manual {payment_method} Payout').strip()[:200]
+
+    if amount <= 0:
+        return jsonify({'success': False, 'message': 'Please enter a valid payment amount greater than 0.'}), 400
+    if payment_status == 'Paid' and not payment_ref:
+        return jsonify({'success': False, 'message': 'Please enter the UPI / Bank Transfer reference ID or details.'}), 400
+
+    db = get_db()
+    emp = db.execute("SELECT id, name, role, wallet_balance, paid_earnings FROM users WHERE id = ?", (user_id,)).fetchone()
+    if not emp or emp['role'] == 'admin':
+        return jsonify({'success': False, 'message': 'Employee not found.'}), 404
+
+    current_balance = float(emp['wallet_balance'] or 0)
+    if amount > current_balance:
+        return jsonify({'success': False, 'message': f'Amount exceeds available wallet balance (₹{current_balance:,.2f}).'}), 400
+
+    now_ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    db.execute('''INSERT INTO wallet_transactions
+                    (user_id, customer_id, tx_type, description, amount,
+                     payment_status, payment_method, payment_ref, created_by, created_at)
+                  VALUES (?, NULL, 'payout', ?, ?, ?, ?, ?, ?, ?)''',
+               (user_id, description, amount, payment_status, payment_method, payment_ref or 'Pending Transfer', session['user_id'], now_ts))
+
+    if payment_status == 'Paid':
+        db.execute('''UPDATE users
+                      SET wallet_balance = COALESCE(wallet_balance, 0) - ?,
+                          paid_earnings = COALESCE(paid_earnings, 0) + ?
+                      WHERE id = ?''', (amount, amount, user_id))
+    db.commit()
+
+    updated = db.execute("SELECT wallet_balance, paid_earnings FROM users WHERE id = ?", (user_id,)).fetchone()
+    return jsonify({
+        'success': True,
+        'message': f"Manual {payment_method} payment of ₹{amount:,.2f} recorded as {payment_status}.",
+        'wallet_balance': float(updated['wallet_balance'] or 0),
+        'paid_earnings': float(updated['paid_earnings'] or 0)
+    })
+
+@app.route('/api/admin/wallets/transactions/<int:tx_id>/mark-paid', methods=['POST'])
+@admin_required
+def admin_mark_payout_paid(tx_id):
+    data = request.get_json(force=True, silent=True) or {}
+    payment_ref = (data.get('payment_ref') or '').strip()[:160]
+
+    db = get_db()
+    tx = db.execute("SELECT * FROM wallet_transactions WHERE id = ?", (tx_id,)).fetchone()
+    if not tx or tx['tx_type'] != 'payout':
+        return jsonify({'success': False, 'message': 'Payout transaction not found.'}), 404
+    if tx['payment_status'] == 'Paid':
+        return jsonify({'success': False, 'message': 'This payout is already marked as Paid.'}), 400
+
+    emp = db.execute("SELECT id, wallet_balance FROM users WHERE id = ?", (tx['user_id'],)).fetchone()
+    if not emp:
+        return jsonify({'success': False, 'message': 'Employee not found.'}), 404
+    amt = float(tx['amount'] or 0)
+    if amt > float(emp['wallet_balance'] or 0):
+        return jsonify({'success': False, 'message': 'Insufficient wallet balance to mark this payout as Paid.'}), 400
+
+    new_ref = payment_ref or tx['payment_ref'] or 'Paid via Admin'
+    db.execute("UPDATE wallet_transactions SET payment_status = 'Paid', payment_ref = ? WHERE id = ?", (new_ref, tx_id))
+    db.execute('''UPDATE users
+                  SET wallet_balance = COALESCE(wallet_balance, 0) - ?,
+                      paid_earnings = COALESCE(paid_earnings, 0) + ?
+                  WHERE id = ?''', (amt, amt, emp['id']))
+    db.commit()
+    return jsonify({'success': True, 'message': 'Payout marked as Paid.'})
+
+# -------------------------------------------------------------
 # USER-SIDE READ-ONLY TRAINING MATERIALS & SECURE FILE SERVING
-# Only PUBLISHED (is_active = 1) materials are visible/downloadable to regular users.
 # -------------------------------------------------------------
 def serialize_material_row(row, include_admin_fields=False):
     has_file = bool(row['stored_path'])
@@ -1471,18 +1763,27 @@ def serialize_material_row(row, include_admin_fields=False):
 @app.route('/api/training/resources')
 @login_required
 def get_training_resources():
-    lang = (request.args.get('language') or 'English').strip()
+    lang = (request.args.get('language') or 'all').strip()
     cat = (request.args.get('category') or '').strip()
 
     db = get_db()
-    count_rows = db.execute('''SELECT category, COUNT(*) AS cnt
-                               FROM materials
-                               WHERE language = ? AND is_active = 1
-                               GROUP BY category''', (lang,)).fetchall()
+    if lang.lower() == 'all':
+        count_rows = db.execute('''SELECT category, COUNT(*) AS cnt
+                                   FROM materials
+                                   WHERE is_active = 1
+                                   GROUP BY category''').fetchall()
+        query = "SELECT * FROM materials WHERE is_active = 1"
+        params = []
+    else:
+        count_rows = db.execute('''SELECT category, COUNT(*) AS cnt
+                                   FROM materials
+                                   WHERE language = ? AND is_active = 1
+                                   GROUP BY category''', (lang,)).fetchall()
+        query = "SELECT * FROM materials WHERE language = ? AND is_active = 1"
+        params = [lang]
+
     counts = {r['category']: r['cnt'] for r in count_rows}
 
-    query = "SELECT * FROM materials WHERE language = ? AND is_active = 1"
-    params = [lang]
     if cat:
         query += " AND category = ?"
         params.append(cat)
@@ -1508,7 +1809,7 @@ def serve_training_material_file(material_id):
         return jsonify({'success': False, 'message': 'File not found.'}), 404
 
     is_admin = is_designated_admin_user(g.current_user)
-    if rec['is_active'] != 1 and not is_admin:
+    if int(rec['is_active'] or 0) != 1 and not is_admin:
         return jsonify({'success': False, 'message': 'Material is not published.'}), 404
 
     full_path = resolve_private_path(rec['stored_path'], TRAINING_UPLOAD_ROOT)
@@ -1516,8 +1817,8 @@ def serve_training_material_file(material_id):
         return jsonify({'success': False, 'message': 'File not found on server.'}), 404
 
     download_name = rec['original_filename'] or f"material_{rec['id']}.{rec['file_ext'] or 'bin'}"
-    guessed_mime = rec['mime_type'] or mimetypes.guess_type(download_name)[0] or 'application/octet-stream'
     ext = (rec['file_ext'] or '').lower()
+    guessed_mime = EXT_MIME_MAP.get(ext) or rec['mime_type'] or mimetypes.guess_type(download_name)[0] or 'application/octet-stream'
     inline_requested = request.args.get('inline') == '1'
     allow_inline = classify_file_type(ext) in ('pdf', 'image', 'video', 'text')
     show_inline = inline_requested and allow_inline
@@ -1535,11 +1836,8 @@ def serve_training_material_file(material_id):
 
 # -------------------------------------------------------------
 # ADMIN-ONLY TRAINING MATERIAL CRUD APIS (4 CATEGORIES)
-# Categories: video, sales_script, poster, smart_book
-# Protected strictly by @admin_required (varsha.thirumal21@gmail.com only).
 # -------------------------------------------------------------
 def _validate_and_store_training_file(file_obj, category: str):
-    """Validates an uploaded training file against category rules, saves to TRAINING_UPLOAD_ROOT, returns metadata dict or (None, err_msg)."""
     rules = TRAINING_CATEGORY_RULES[category]
     raw_name = (file_obj.filename or '').strip()
     clean_name = re.sub(r'[\x00-\x1f\x7f/\\]', '', os.path.basename(raw_name)).strip() or 'file'
@@ -1575,7 +1873,7 @@ def _validate_and_store_training_file(file_obj, category: str):
             h.update(chunk)
     file_hash = h.hexdigest()
 
-    mime = mimetypes.guess_type(clean_name)[0] or 'application/octet-stream'
+    mime = EXT_MIME_MAP.get(ext) or mimetypes.guess_type(clean_name)[0] or 'application/octet-stream'
     return {
         'stored_path': f"{category}/{stored_name}",
         'full_path': full_path,
@@ -1613,7 +1911,7 @@ def admin_list_materials():
         cat_key = r['category']
         if cat_key in counts:
             counts[cat_key]['total'] += 1
-            if r['is_active'] == 1:
+            if int(r['is_active'] or 0) == 1:
                 counts[cat_key]['published'] += 1
             else:
                 counts[cat_key]['unpublished'] += 1
@@ -1690,7 +1988,6 @@ def admin_create_material():
                 pass
             return jsonify({'success': False, 'message': f"This exact file is already uploaded under '{dup_file['title']}'."}), 409
 
-        # If a .txt sales script was uploaded with empty textarea content, extract readable text automatically
         if category == 'sales_script' and meta['file_ext'] == 'txt' and not content:
             try:
                 with open(meta['full_path'], 'r', encoding='utf-8', errors='ignore') as tf:
@@ -1721,9 +2018,10 @@ def admin_create_material():
     db.commit()
 
     row = db.execute("SELECT * FROM materials WHERE id = ?", (mat_id,)).fetchone()
+    status_label = 'published and visible to users' if is_active == 1 else 'saved as unpublished'
     return jsonify({
         'success': True,
-        'message': f"{TRAINING_CATEGORY_RULES[category]['label']} item saved successfully.",
+        'message': f"'{title}' ({TRAINING_CATEGORY_RULES[category]['label']}) {status_label}.",
         'item': serialize_material_row(row, include_admin_fields=True)
     }), 201
 
@@ -1823,9 +2121,10 @@ def admin_update_material(material_id):
         delete_training_file(old_stored_path)
 
     row = db.execute("SELECT * FROM materials WHERE id = ?", (material_id,)).fetchone()
+    status_label = 'Published (visible to users)' if is_active == 1 else 'Unpublished'
     return jsonify({
         'success': True,
-        'message': 'Training material updated successfully.',
+        'message': f"'{title}' updated — Status: {status_label}.",
         'item': serialize_material_row(row, include_admin_fields=True)
     })
 
@@ -1833,33 +2132,35 @@ def admin_update_material(material_id):
 @admin_required
 def admin_toggle_material_publish(material_id):
     db = get_db()
-    existing = db.execute("SELECT id, is_active, category FROM materials WHERE id = ?", (material_id,)).fetchone()
+    existing = db.execute("SELECT * FROM materials WHERE id = ?", (material_id,)).fetchone()
     if not existing or existing['category'] not in TRAINING_CATEGORY_RULES:
         return jsonify({'success': False, 'message': 'Training material not found.'}), 404
 
-    new_state = 0 if existing['is_active'] == 1 else 1
+    new_state = 0 if int(existing['is_active'] or 0) == 1 else 1
     now_ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     db.execute("UPDATE materials SET is_active = ?, updated_at = ? WHERE id = ?", (new_state, now_ts, material_id))
     db.commit()
 
+    updated = db.execute("SELECT * FROM materials WHERE id = ?", (material_id,)).fetchone()
     return jsonify({
         'success': True,
         'is_active': new_state,
-        'message': 'Material published.' if new_state == 1 else 'Material unpublished.'
+        'item': serialize_material_row(updated, include_admin_fields=True),
+        'message': f"'{existing['title']}' is now Published and visible to users." if new_state == 1 else f"'{existing['title']}' has been Unpublished and hidden from users."
     })
 
 @app.route('/api/admin/materials/<int:material_id>', methods=['DELETE'])
 @admin_required
 def admin_delete_material(material_id):
     db = get_db()
-    existing = db.execute("SELECT id, stored_path, category FROM materials WHERE id = ?", (material_id,)).fetchone()
+    existing = db.execute("SELECT id, title, stored_path, category FROM materials WHERE id = ?", (material_id,)).fetchone()
     if not existing or existing['category'] not in TRAINING_CATEGORY_RULES:
         return jsonify({'success': False, 'message': 'Training material not found.'}), 404
 
     db.execute("DELETE FROM materials WHERE id = ?", (material_id,))
     db.commit()
     delete_training_file(existing['stored_path'])
-    return jsonify({'success': True, 'message': 'Training material deleted.'})
+    return jsonify({'success': True, 'message': f"'{existing['title']}' deleted permanently."})
 
 # -------------------------------------------------------------
 # REPORTS & MEMBER FILE DOWNLOADS
@@ -1867,10 +2168,6 @@ def admin_delete_material(material_id):
 @app.route('/api/reports')
 @login_required
 def get_reports():
-    """
-    Members see ONLY their own report files (files the admin uploaded for them + their automatic reports).
-    The admin sees every member's files, labelled with the member, so uploads can be checked in one place.
-    """
     user_id = session['user_id']
     is_admin = is_designated_admin_user(g.current_user)
     date_filter = (request.args.get('date') or '').strip()
@@ -1927,7 +2224,8 @@ def send_member_file(rec, inline=False):
     full_path = resolve_private_path(rec['stored_path'])
     if not full_path:
         return jsonify({'success': False, 'message': 'File not found on server.'}), 404
-    guessed_mime = mimetypes.guess_type(rec['original_name'])[0] or 'application/octet-stream'
+    ext = (rec['file_ext'] or '').lower()
+    guessed_mime = EXT_MIME_MAP.get(ext) or mimetypes.guess_type(rec['original_name'])[0] or 'application/octet-stream'
     show_inline = bool(inline) and (rec['file_type'] or classify_file_type(rec['file_ext'])) in ('pdf', 'image')
     response = send_file(full_path, mimetype=guessed_mime, as_attachment=not show_inline,
                          download_name=rec['original_name'], conditional=True)
@@ -1938,7 +2236,6 @@ def send_member_file(rec, inline=False):
 @app.route('/api/reports/download-file/<int:file_id>')
 @login_required
 def download_dynamic_file(file_id):
-    """A member can download only their own files. Admin can download any member file."""
     db = get_db()
     rec = db.execute("SELECT * FROM member_files WHERE id = ?", (file_id,)).fetchone()
     if not rec:
@@ -1950,7 +2247,6 @@ def download_dynamic_file(file_id):
 @app.route('/api/reports/share/<int:file_id>', methods=['POST'])
 @login_required
 def create_report_share_link(file_id):
-    """Owner creates a time-limited signed link for one of their own files."""
     db = get_db()
     rec = db.execute("SELECT id, user_id, original_name FROM member_files WHERE id = ?", (file_id,)).fetchone()
     if not rec or (rec['user_id'] != session['user_id'] and not is_designated_admin_user(g.current_user)):
@@ -2017,7 +2313,6 @@ def admin_toggle_status(order_id):
 
 # -------------------------------------------------------------
 # ADMIN TEAM MEMBERS (LIST + PER-MEMBER FILE / FOLDER UPLOADS)
-# Every route below is protected on the server by @admin_required.
 # -------------------------------------------------------------
 @app.route('/api/admin/team-members')
 @admin_required
@@ -2145,7 +2440,7 @@ def admin_upload_member_files(user_id):
                              'reason': f"File is larger than {MAX_REPORT_FILE_SIZE // (1024 * 1024)} MB."})
             continue
 
-        mime = mimetypes.guess_type(display_name)[0] or 'application/octet-stream'
+        mime = EXT_MIME_MAP.get(ext) or mimetypes.guess_type(display_name)[0] or 'application/octet-stream'
         cur = db.execute('''INSERT INTO member_files
                               (user_id, member_id, customer_id, original_name, relative_path, stored_path,
                                file_ext, file_type, mime_type, size_bytes, uploaded_by, upload_date, source)
@@ -2181,7 +2476,6 @@ def admin_list_banners():
 @app.route('/api/admin/banners/<int:slot>', methods=['POST'])
 @admin_required
 def admin_save_banner(slot):
-    """Adds a new advertisement in the slot, or edits / updates / replaces the image of the existing one."""
     if slot not in BANNER_SLOTS:
         return jsonify({'success': False, 'message': 'Invalid advertisement slot.'}), 400
 

@@ -321,6 +321,7 @@ body {
   display: flex;
   flex-direction: column;
   padding: 16px 14px;
+  overflow-y: auto;
   transform: translateX(-100%);
   transition: transform 0.2s ease;
 }
@@ -360,6 +361,11 @@ body {
 .sidebar-wallet-card {
   border: 1px solid var(--border);
   background: #f8fafc;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+.sidebar-wallet-card:hover {
+  border-color: var(--primary);
 }
 
 .sidebar-nav {
@@ -420,38 +426,8 @@ body {
 
 .app-body {
   padding: 16px;
-  padding-bottom: 80px;
+  padding-bottom: 24px;
 }
-
-.bottom-nav {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  max-width: 480px;
-  margin: 0 auto;
-  height: 60px;
-  background: #ffffff;
-  border-top: 1px solid var(--border);
-  display: flex;
-  justify-content: space-around;
-  align-items: center;
-  z-index: 99;
-}
-
-.nav-item {
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  font-size: 11px;
-  gap: 4px;
-  cursor: pointer;
-}
-.nav-item.active { color: var(--primary); font-weight: bold; }
-.nav-item i { font-size: 18px; }
 
 /* Dashboard Styles */
 .partner-welcome {
@@ -489,6 +465,7 @@ body {
   justify-content: center;
   color: #fff;
   font-size: 18px;
+  flex-shrink: 0;
 }
 .green-icon { background: #22c55e; }
 .orange-icon { background: #f97316; }
@@ -511,6 +488,18 @@ body {
   color: #fff;
   padding: 12px;
   font-size: 15px;
+}
+
+.btn-add-customer-inline {
+  background: #f59e0b;
+  color: #ffffff;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  margin-right: auto;
+}
+.btn-add-customer-inline:hover {
+  background: #d97706;
 }
 
 .referral-card {
@@ -622,6 +611,9 @@ body {
 .badge-Called { background: #fef3c7; color: #d97706; }
 .badge-Interested { background: #ede9fe; color: #7c3aed; }
 .badge-Joined { background: #dcfce7; color: #16a34a; }
+.badge-Credited { background: #dcfce7; color: #166534; }
+.badge-Paid { background: #dbeafe; color: #1d4ed8; }
+.badge-Pending { background: #fef3c7; color: #b45309; }
 
 .cust-actions { display: flex; align-items: center; gap: 8px; }
 .whatsapp-chat-btn {
@@ -643,6 +635,94 @@ body {
   margin-top: 14px;
   padding-top: 10px;
   border-top: 1px solid var(--border);
+}
+
+/* Wallet & Transaction History */
+.wallet-rates-note {
+  background: #ede9fe;
+  color: var(--primary);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 12px;
+  margin-bottom: 14px;
+}
+.wallet-section-heading {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--primary);
+  margin-bottom: 10px;
+}
+.wallet-tx-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.03);
+}
+.wallet-tx-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+.wallet-tx-top strong {
+  font-size: 13.5px;
+  color: #111827;
+}
+.wallet-tx-amount-credit {
+  color: #16a34a;
+  font-weight: 700;
+  font-size: 14px;
+  white-space: nowrap;
+}
+.wallet-tx-amount-debit {
+  color: #1d4ed8;
+  font-weight: 700;
+  font-size: 14px;
+  white-space: nowrap;
+}
+.wallet-tx-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+.wallet-emp-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+}
+.wallet-emp-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.wallet-emp-head strong {
+  font-size: 14px;
+  display: block;
+}
+.wallet-emp-stats {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  font-size: 12.5px;
+  margin-bottom: 10px;
+  background: #f8fafc;
+  padding: 8px 10px;
+  border-radius: 8px;
+}
+.wallet-emp-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
 /* Training & Resources Hub */
@@ -855,7 +935,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-height: calc(100vh - 210px);
+  max-height: calc(100vh - 160px);
   overflow-y: auto;
   padding-bottom: 16px;
 }
@@ -882,7 +962,7 @@ body {
   width: 100%;
   border-radius: 8px;
   margin-top: 8px;
-  max-height: 220px;
+  max-height: 240px;
   background: #000000;
 }
 
@@ -919,7 +999,7 @@ body {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 12px;
-  max-height: calc(100vh - 210px);
+  max-height: calc(100vh - 160px);
   overflow-y: auto;
   padding-bottom: 16px;
 }
@@ -1088,6 +1168,7 @@ body {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+  flex-wrap: wrap;
   border-top: 1px solid var(--border);
 }
 .form-group { text-align: left; margin-bottom: 14px; }
@@ -1322,7 +1403,7 @@ body {
 @media (max-width: 400px) { .header-admin-btn span { display: none; } }
 
 body.admin-team-wide { max-width: 1280px; }
-body.admin-team-wide .app-body { padding-bottom: 80px; }
+body.admin-team-wide .app-body { padding-bottom: 24px; }
 
 .team-banner {
   background: #e3ecd3;

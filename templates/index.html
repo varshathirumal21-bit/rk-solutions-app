@@ -73,7 +73,7 @@
       </div>
 
       <div class="sidebar-wallet-section">
-        <div class="metric-card earning-card sidebar-wallet-card">
+        <div class="metric-card earning-card sidebar-wallet-card" onclick="sidebarNavigate('wallet')" title="View Wallet & Transaction History">
           <div class="metric-icon red-icon"><i class="fa-solid fa-wallet"></i></div>
           <div class="metric-content">
             <span class="label">Wallet Balance</span>
@@ -87,9 +87,11 @@
         <button class="sidebar-nav-item" data-tab="customers" onclick="sidebarNavigate('customers')"><i class="fa-solid fa-users"></i><span>Customers</span></button>
         <button class="sidebar-nav-item" data-tab="training" onclick="sidebarNavigate('training')"><i class="fa-solid fa-graduation-cap"></i><span>Training</span></button>
         <button class="sidebar-nav-item" data-tab="reports" onclick="sidebarNavigate('reports')"><i class="fa-solid fa-file-invoice"></i><span>Reports</span></button>
+        <button class="sidebar-nav-item" data-tab="wallet" onclick="sidebarNavigate('wallet')"><i class="fa-solid fa-clock-rotate-left"></i><span>Wallet History</span></button>
         <button class="sidebar-nav-item" data-tab="profile" onclick="sidebarNavigate('profile')"><i class="fa-solid fa-user"></i><span>Profile</span></button>
         <button id="sidebar-admin-btn" class="sidebar-nav-item hidden" data-tab="admin-team" onclick="sidebarNavigate('admin-team')"><i class="fa-solid fa-user-shield"></i><span>Admin Dashboard</span></button>
         <button id="sidebar-admin-materials-btn" class="sidebar-nav-item hidden" data-tab="admin-materials" onclick="sidebarNavigate('admin-materials')"><i class="fa-solid fa-folder-plus"></i><span>Manage Training</span></button>
+        <button id="sidebar-admin-wallets-btn" class="sidebar-nav-item hidden" data-tab="admin-wallets" onclick="sidebarNavigate('admin-wallets')"><i class="fa-solid fa-money-check-dollar"></i><span>Employee Wallets</span></button>
       </nav>
     </aside>
 
@@ -253,6 +255,7 @@
               <span class="lang-label-text">Select Content Language:</span>
             </div>
             <select id="training-language-select" class="training-lang-select" onchange="onLanguageChanged()">
+              <option value="all">All Languages</option>
               <option value="English">English</option>
               <option value="Tamil">Tamil</option>
               <option value="Telugu">Telugu</option>
@@ -315,7 +318,7 @@
         <div class="subpage-header-bar">
           <button class="btn btn-secondary btn-sm" onclick="returnToTrainingHub()"><i class="fa-solid fa-arrow-left"></i> Back</button>
           <h4 id="videos-page-title">Training Videos</h4>
-          <span class="badge-lang" id="badge-lang-videos">English</span>
+          <span class="badge-lang" id="badge-lang-videos">All</span>
         </div>
         <div id="videos-list-container" class="resource-items-scroll"></div>
       </section>
@@ -325,7 +328,7 @@
         <div class="subpage-header-bar">
           <button class="btn btn-secondary btn-sm" onclick="returnToTrainingHub()"><i class="fa-solid fa-arrow-left"></i> Back</button>
           <h4 id="scripts-page-title">Sales Scripts</h4>
-          <span class="badge-lang" id="badge-lang-scripts">English</span>
+          <span class="badge-lang" id="badge-lang-scripts">All</span>
         </div>
         <div id="scripts-list-container" class="resource-items-scroll"></div>
       </section>
@@ -335,7 +338,7 @@
         <div class="subpage-header-bar">
           <button class="btn btn-secondary btn-sm" onclick="returnToTrainingHub()"><i class="fa-solid fa-arrow-left"></i> Back</button>
           <h4 id="faq-page-title">Frequently Asked Questions</h4>
-          <span class="badge-lang" id="badge-lang-faq">English</span>
+          <span class="badge-lang" id="badge-lang-faq">All</span>
         </div>
         <div id="faq-list-container" class="resource-items-scroll"></div>
       </section>
@@ -345,7 +348,7 @@
         <div class="subpage-header-bar">
           <button class="btn btn-secondary btn-sm" onclick="returnToTrainingHub()"><i class="fa-solid fa-arrow-left"></i> Back</button>
           <h4 id="posters-page-title">Marketing Posters</h4>
-          <span class="badge-lang" id="badge-lang-posters">English</span>
+          <span class="badge-lang" id="badge-lang-posters">All</span>
         </div>
         <div id="posters-grid-container" class="poster-grid-layout"></div>
       </section>
@@ -355,7 +358,7 @@
         <div class="subpage-header-bar">
           <button class="btn btn-secondary btn-sm" onclick="returnToTrainingHub()"><i class="fa-solid fa-arrow-left"></i> Back</button>
           <h4 id="smartbook-page-title">Sample Smart Books</h4>
-          <span class="badge-lang" id="badge-lang-smartbook">English</span>
+          <span class="badge-lang" id="badge-lang-smartbook">All</span>
         </div>
         <div id="smartbook-list-container" class="resource-items-scroll"></div>
       </section>
@@ -367,6 +370,33 @@
           <input type="date" id="reports-date-filter" onchange="loadReports()">
         </div>
         <div id="reports-container" class="reports-container"></div>
+      </section>
+
+      <!-- SCREEN 5B: USER WALLET & TRANSACTION HISTORY -->
+      <section id="screen-wallet" class="sub-screen">
+        <div class="metrics-grid mb-3">
+          <div class="metric-card earning-card">
+            <div class="metric-icon red-icon"><i class="fa-solid fa-wallet"></i></div>
+            <div class="metric-content">
+              <span class="label">Wallet Balance</span>
+              <strong id="wallet-page-balance">₹0</strong>
+            </div>
+          </div>
+          <div class="metric-card earning-card">
+            <div class="metric-icon blue-icon"><i class="fa-solid fa-indian-rupee-sign"></i></div>
+            <div class="metric-content">
+              <span class="label">Paid Earning</span>
+              <strong id="wallet-page-paid">₹0</strong>
+            </div>
+          </div>
+        </div>
+
+        <div class="wallet-rates-note">
+          <span><i class="fa-solid fa-circle-info"></i> Credit Rates: <strong>Smart Book / PDF → ₹10</strong> &middot; <strong>Membership → ₹100</strong></span>
+        </div>
+
+        <h5 class="wallet-section-heading">Transaction &amp; Payment History</h5>
+        <div id="wallet-transactions-list" class="card-list"></div>
       </section>
 
       <!-- SCREEN 6: PROFILE -->
@@ -418,8 +448,8 @@
               <strong id="success-amount">₹955.00</strong>
             </div>
             <div class="summary-line">
-              <span>Order Status:</span>
-              <span class="badge-status badge-Joined">Request Received</span>
+              <span>Customer Status:</span>
+              <span class="badge-status badge-Joined">Joined</span>
             </div>
           </div>
 
@@ -445,6 +475,9 @@
         <div class="mb-3 admin-action-bar">
           <button class="btn btn-primary btn-sm" onclick="openAdminMaterialsPage()">
             <i class="fa-solid fa-folder-plus"></i> Manage Training Materials
+          </button>
+          <button class="btn btn-outline btn-sm" onclick="openAdminWalletsPage()">
+            <i class="fa-solid fa-money-check-dollar"></i> Employee Wallets
           </button>
         </div>
 
@@ -479,6 +512,7 @@
           </div>
           <div class="admin-action-bar">
             <button class="btn btn-primary btn-sm" onclick="openAdminMaterialsPage()"><i class="fa-solid fa-folder-plus"></i> Training Materials</button>
+            <button class="btn btn-outline btn-sm" onclick="openAdminWalletsPage()"><i class="fa-solid fa-money-check-dollar"></i> Employee Wallets</button>
             <button class="btn btn-outline btn-sm" onclick="loadAdminTeam()"><i class="fa-solid fa-rotate"></i> Refresh</button>
           </div>
         </div>
@@ -517,6 +551,8 @@
             <option value="Kannada">Kannada</option>
           </select>
         </div>
+
+        <div id="admin-mat-status-banner" class="team-upload-result"></div>
 
         <!-- Section 1: Training Videos -->
         <div class="admin-mat-section">
@@ -586,16 +622,18 @@
           <div id="admin-mat-list-smart_book" class="admin-mat-list"></div>
         </div>
       </section>
-    </main>
 
-    <!-- Bottom Navigation -->
-    <nav class="bottom-nav">
-      <button class="nav-item active" onclick="switchTab('dashboard')"><i class="fa-solid fa-house"></i><span>Home</span></button>
-      <button class="nav-item" onclick="switchTab('customers')"><i class="fa-solid fa-users"></i><span>Customers</span></button>
-      <button class="nav-item" onclick="switchTab('training')"><i class="fa-solid fa-graduation-cap"></i><span>Training</span></button>
-      <button class="nav-item" onclick="switchTab('reports')"><i class="fa-solid fa-file-invoice"></i><span>Reports</span></button>
-      <button class="nav-item" onclick="switchTab('profile')"><i class="fa-solid fa-user"></i><span>Profile</span></button>
-    </nav>
+      <!-- SCREEN 11: ADMIN EMPLOYEE WALLETS & TRANSACTIONS -->
+      <section id="screen-admin-wallets" class="sub-screen">
+        <div class="admin-mat-topbar">
+          <button class="btn btn-secondary btn-sm" onclick="openAdminTeamPage()"><i class="fa-solid fa-arrow-left"></i> Admin Dashboard</button>
+          <button class="btn btn-outline btn-sm" onclick="loadAdminWallets()"><i class="fa-solid fa-rotate"></i> Refresh</button>
+        </div>
+
+        <div id="admin-wallets-banner" class="team-upload-result"></div>
+        <div id="admin-wallets-list" class="card-list"></div>
+      </section>
+    </main>
   </div>
 
   <!-- Modals -->
@@ -702,7 +740,7 @@
         </div>
         <div class="form-group">
           <label>Update Lead Status</label>
-          <select id="edit-cust-status">
+          <select id="edit-cust-status" onchange="onEditCustomerStatusChange()">
             <option value="New">New</option>
             <option value="Called">Called</option>
             <option value="Interested">Interested</option>
@@ -715,6 +753,9 @@
         </div>
       </div>
       <div class="modal-footer">
+        <button type="button" id="edit-cust-add-new-btn" class="btn btn-add-customer-inline hidden" onclick="addNewCustomerFromEdit()">
+          <i class="fa-solid fa-user-plus"></i> + Add New Customer
+        </button>
         <button class="btn btn-secondary" onclick="closeModal('modal-edit-customer')">Cancel</button>
         <button class="btn btn-primary" onclick="saveCustomerStatus()">Save Changes</button>
       </div>
@@ -747,12 +788,7 @@
           <input type="hidden" id="adm-mat-id" value="">
           <div class="form-group">
             <label>Resource Category *</label>
-            <select id="adm-mat-cat" required onchange="onAdminMaterialCategoryChange()">
-              <option value="video">Training Video</option>
-              <option value="sales_script">Sales Script</option>
-              <option value="poster">Poster</option>
-              <option value="smart_book">Sample Smart Book</option>
-            </select>
+            <select id="adm-mat-cat" required onchange="onAdminMaterialCategoryChange()"></select>
           </div>
           <div class="form-group">
             <label>Language *</label>
@@ -791,6 +827,92 @@
           <div id="adm-mat-error" class="team-upload-result"></div>
           <button type="submit" id="adm-mat-submit-btn" class="btn btn-primary w-100">Publish Material</button>
         </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Admin Wallet Credit Modal -->
+  <div id="modal-admin-wallet-credit" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h4>Add Wallet Credit</h4>
+        <button class="btn-close" onclick="closeModal('modal-admin-wallet-credit')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="adm-credit-user-id">
+        <div class="team-upload-target" id="adm-credit-target"></div>
+        <div class="form-group">
+          <label>Credit Amount (₹) *</label>
+          <input type="number" id="adm-credit-amount" min="1" step="0.01" placeholder="e.g. 100">
+        </div>
+        <div class="form-group">
+          <label>Description / Reason *</label>
+          <input type="text" id="adm-credit-desc" placeholder="e.g. Bonus / Adjustment">
+        </div>
+        <div id="adm-credit-error" class="team-upload-result"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('modal-admin-wallet-credit')">Cancel</button>
+        <button class="btn btn-primary" onclick="submitAdminWalletCredit()">Add Credit</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Admin Manual Payment Modal (UPI / Bank Transfer) -->
+  <div id="modal-admin-wallet-payout" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h4>Record Manual Payment</h4>
+        <button class="btn-close" onclick="closeModal('modal-admin-wallet-payout')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="adm-payout-user-id">
+        <div class="team-upload-target" id="adm-payout-target"></div>
+        <div class="form-group">
+          <label>Payment Amount (₹) *</label>
+          <input type="number" id="adm-payout-amount" min="1" step="0.01" placeholder="Enter amount paid">
+        </div>
+        <div class="form-group">
+          <label>Payment Method *</label>
+          <select id="adm-payout-method">
+            <option value="UPI">UPI</option>
+            <option value="Bank Transfer">Bank Transfer</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Payment Status *</label>
+          <select id="adm-payout-status">
+            <option value="Paid">Paid</option>
+            <option value="Pending">Pending</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>UPI / Bank Transfer Reference (UTR / Details) *</label>
+          <input type="text" id="adm-payout-ref" placeholder="e.g. UTR1234567890 / GPay">
+        </div>
+        <div class="form-group">
+          <label>Notes</label>
+          <input type="text" id="adm-payout-desc" placeholder="e.g. Monthly wallet settlement">
+        </div>
+        <div id="adm-payout-error" class="team-upload-result"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('modal-admin-wallet-payout')">Cancel</button>
+        <button class="btn btn-primary" onclick="submitAdminWalletPayout()">Save Payment</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Admin Employee Transaction History Modal -->
+  <div id="modal-admin-wallet-history" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h4>Employee Wallet History</h4>
+        <button class="btn-close" onclick="closeModal('modal-admin-wallet-history')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="team-upload-target" id="adm-history-target"></div>
+        <div id="adm-history-list" class="card-list"></div>
       </div>
     </div>
   </div>

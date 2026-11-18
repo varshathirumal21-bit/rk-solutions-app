@@ -9,9 +9,11 @@ const screenHistory = [];
 let resendTimerInterval = null;
 let customerSubmitBusy = false;
 let materialSubmitBusy = false;
+let walletActionBusy = false;
 
 const currentLoadedScriptsMap = {};
 const adminMaterialsMap = {};
+let adminWalletsList = [];
 
 const MATERIAL_CATEGORY_META = {
   video: {
@@ -153,7 +155,9 @@ function renderAppShell() {
   const sidebarMatBtn = document.getElementById('sidebar-admin-materials-btn');
   if (sidebarMatBtn) sidebarMatBtn.classList.toggle('hidden', !adminFlag);
 
-  // Only the designated admin gets the advertisement manager button (the server enforces this too).
+  const sidebarWalletsBtn = document.getElementById('sidebar-admin-wallets-btn');
+  if (sidebarWalletsBtn) sidebarWalletsBtn.classList.toggle('hidden', !adminFlag);
+
   const adsAdminBox = document.getElementById('ads-admin-actions');
   if (adsAdminBox) adsAdminBox.classList.toggle('hidden', !adminFlag);
 
@@ -167,7 +171,7 @@ function renderAppShell() {
 }
 
 function switchTab(tabId, addToHistory = true) {
-  if ((tabId === 'admin' || tabId === 'admin-team' || tabId === 'admin-materials') && !isDesignatedAdmin()) {
+  if ((tabId === 'admin' || tabId === 'admin-team' || tabId === 'admin-materials' || tabId === 'admin-wallets') && !isDesignatedAdmin()) {
     tabId = 'dashboard';
   }
 
@@ -179,24 +183,10 @@ function switchTab(tabId, addToHistory = true) {
   }
 
   document.querySelectorAll('.sub-screen').forEach(s => s.classList.remove('active'));
-  document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
   document.querySelectorAll('.sidebar-nav-item').forEach(b => b.classList.remove('active'));
 
   const targetScreen = document.getElementById(`screen-${tabId}`);
   if (targetScreen) targetScreen.classList.add('active');
-
-  document.querySelectorAll('.nav-item').forEach(btn => {
-    const text = btn.innerText.toLowerCase().trim();
-    if (
-      (tabId === 'dashboard' && text === 'home') ||
-      (tabId === 'customers' && text === 'customers') ||
-      (tabId.startsWith('training') && text === 'training') ||
-      (tabId === 'reports' && text === 'reports') ||
-      (tabId === 'profile' && text === 'profile')
-    ) {
-      btn.classList.add('active');
-    }
-  });
 
   document.querySelectorAll('.sidebar-nav-item').forEach(btn => {
     const dt = btn.getAttribute('data-tab');
@@ -215,11 +205,13 @@ function switchTab(tabId, addToHistory = true) {
     'training-posters': 'Posters',
     'training-smartbook': 'Sample Smart Book',
     'reports': 'My Reports',
+    'wallet': 'Wallet & History',
     'profile': 'My Profile',
     'payment-success': 'Payment Confirmation',
     'admin': 'Admin Portal',
     'admin-team': 'Admin Team Members',
-    'admin-materials': 'Manage Training Materials'
+    'admin-materials': 'Manage Training Materials',
+    'admin-wallets': 'Employee Wallets'
   };
   document.getElementById('header-title').innerText = titles[tabId] || 'RK Solutions';
 
@@ -227,10 +219,12 @@ function switchTab(tabId, addToHistory = true) {
   if (tabId === 'customers') loadCustomerList();
   if (tabId === 'training') updateTrainingHubCounts();
   if (tabId === 'reports') loadReports();
+  if (tabId === 'wallet') loadWalletPage();
   if (tabId === 'admin') loadAdminPanel();
   document.body.classList.toggle('admin-team-wide', tabId === 'admin-team');
   if (tabId === 'admin-team') loadAdminTeam();
   if (tabId === 'admin-materials') loadAdminMaterials();
+  if (tabId === 'admin-wallets') loadAdminWallets();
 }
 
 function navigatePreviousScreen() {
@@ -881,6 +875,12 @@ async function confirmPaymentAndSaveCustomer() {
       document.getElementById('success-cust-name').innerText = tempCustomerPayload.name;
       const amountVal = tempCustomerPayload.plan_name === 'Smart Book' ? '₹300.00' : '₹955.00';
       document.getElementById('success-amount').innerText = amountVal;
+
+      if (data.wallet_balance !== undefined) {
+        updateSidebarWallet(data.wallet_balance);
+        if (currentUser) currentUser.wallet_balance = data.wallet_balance;
+      }
+
       tempCustomerPayload = null;
       switchTab('payment-success');
     } else {
@@ -897,11 +897,25 @@ async function confirmPaymentAndSaveCustomer() {
   }
 }
 
+function onEditCustomerStatusChange() {
+  const status = document.getElementById('edit-cust-status')?.value;
+  const addNewBtn = document.getElementById('edit-cust-add-new-btn');
+  if (addNewBtn) {
+    addNewBtn.classList.toggle('hidden', status !== 'Joined');
+  }
+}
+
+function addNewCustomerFromEdit() {
+  closeModal('modal-edit-customer');
+  openAddCustomerModal();
+}
+
 function openEditCustomerModal(id, name, status, comments) {
   document.getElementById('edit-cust-id').value = id;
   document.getElementById('edit-cust-name').value = name;
   document.getElementById('edit-cust-status').value = status;
   document.getElementById('edit-cust-comments').value = comments;
+  onEditCustomerStatusChange();
   openModal('modal-edit-customer');
 }
 
@@ -917,6 +931,10 @@ async function saveCustomerStatus() {
   });
   const data = await res.json();
   if (data.success) {
+    if (data.wallet_balance !== undefined) {
+      updateSidebarWallet(data.wallet_balance);
+      if (currentUser) currentUser.wallet_balance = data.wallet_balance;
+    }
     closeModal('modal-edit-customer');
     loadCustomerList();
   } else {
@@ -929,10 +947,281 @@ function exportData(fmt) {
 }
 
 // --------------------------------------------------------
-// USER-SIDE TRAINING & RESOURCES (DYNAMICALLY INTEGRATED WITH ADMIN CRUD)
-// Only PUBLISHED (is_active = 1) materials are returned by the backend.
+// USER WALLET & TRANSACTION HISTORY
 // --------------------------------------------------------
-let currentTrainingLanguage = 'English';
+function formatWalletTxType(txType) {
+  switch (txType) {
+    case 'smart_book_sale': return 'Smart Book / PDF Sale';
+    case 'membership_sale': return 'Membership Sale';
+    case 'manual_credit': return 'Admin Wallet Credit';
+    case 'payout': return 'Manual Payment (Payout)';
+    default: return txType || 'Transaction';
+  }
+}
+
+function formatWalletTxHtml(tx) {
+  const isPayout = tx.tx_type === 'payout';
+  const sign = isPayout ? '-' : '+';
+  const amtCls = isPayout ? 'wallet-tx-amount-debit' : 'wallet-tx-amount-credit';
+  const statusCls = `badge-${escapeHtml(tx.payment_status || 'Credited')}`;
+  const methodInfo = tx.payment_method ? `<span><i class="fa-solid fa-building-columns"></i> ${escapeHtml(tx.payment_method)}</span>` : '';
+  const refInfo = tx.payment_ref ? `<span>Ref: ${escapeHtml(tx.payment_ref)}</span>` : '';
+  return `
+    <div class="wallet-tx-card">
+      <div class="wallet-tx-top">
+        <div>
+          <strong>${escapeHtml(formatWalletTxType(tx.tx_type))}</strong>
+          <div class="text-sm text-gray">${escapeHtml(tx.description || '')}</div>
+        </div>
+        <span class="${amtCls}">${sign}₹${Number(tx.amount || 0).toLocaleString()}</span>
+      </div>
+      <div class="wallet-tx-meta">
+        <span><i class="fa-regular fa-calendar"></i> ${escapeHtml(tx.created_at)}</span>
+        ${methodInfo}
+        ${refInfo}
+        <span class="badge-status ${statusCls}">${escapeHtml(tx.payment_status || 'Credited')}</span>
+      </div>
+    </div>
+  `;
+}
+
+async function loadWalletPage() {
+  const listEl = document.getElementById('wallet-transactions-list');
+  listEl.innerHTML = '<div class="text-center text-gray p-3"><i class="fa-solid fa-spinner fa-spin"></i> Loading wallet history...</div>';
+  try {
+    const res = await fetch('/api/wallet', { cache: 'no-store' });
+    const data = await res.json();
+    if (!data.success) {
+      listEl.innerHTML = `<div class="text-center text-gray p-3">${escapeHtml(data.message || 'Unable to load wallet.')}</div>`;
+      return;
+    }
+    document.getElementById('wallet-page-balance').innerText = `₹${Number(data.wallet_balance || 0).toLocaleString()}`;
+    document.getElementById('wallet-page-paid').innerText = `₹${Number(data.paid_earnings || 0).toLocaleString()}`;
+    updateSidebarWallet(data.wallet_balance);
+    if (currentUser) currentUser.wallet_balance = data.wallet_balance;
+
+    if (!data.transactions || data.transactions.length === 0) {
+      listEl.innerHTML = '<div class="empty-state-box"><i class="fa-solid fa-wallet"></i><p>No wallet transactions yet.</p></div>';
+      return;
+    }
+    listEl.innerHTML = data.transactions.map(formatWalletTxHtml).join('');
+  } catch (err) {
+    listEl.innerHTML = '<div class="text-center text-gray p-3">Unable to load wallet history.</div>';
+  }
+}
+
+// --------------------------------------------------------
+// ADMIN EMPLOYEE WALLETS, MANUAL CREDIT & MANUAL PAYOUTS
+// --------------------------------------------------------
+function openAdminWalletsPage() {
+  if (!isDesignatedAdmin()) return;
+  switchTab('admin-wallets');
+}
+
+function showAdminWalletsBanner(msg, ok = true) {
+  const el = document.getElementById('admin-wallets-banner');
+  if (!el) return;
+  el.innerHTML = `<div class="team-msg ${ok ? 'team-msg-ok' : 'team-msg-warn'}">${escapeHtml(msg)}</div>`;
+}
+
+async function loadAdminWallets() {
+  if (!isDesignatedAdmin()) return;
+  const listEl = document.getElementById('admin-wallets-list');
+  listEl.innerHTML = '<div class="text-center text-gray p-3"><i class="fa-solid fa-spinner fa-spin"></i> Loading employee wallets...</div>';
+  try {
+    const res = await fetch('/api/admin/wallets', { cache: 'no-store' });
+    const data = await res.json();
+    if (!data.success) {
+      listEl.innerHTML = `<div class="team-msg team-msg-warn">${escapeHtml(data.message || 'Access denied.')}</div>`;
+      return;
+    }
+    adminWalletsList = data.employees || [];
+    if (!adminWalletsList.length) {
+      listEl.innerHTML = '<div class="empty-state-box"><i class="fa-solid fa-users"></i><p>No employees found yet.</p></div>';
+      return;
+    }
+    listEl.innerHTML = '';
+    adminWalletsList.forEach(emp => {
+      const card = document.createElement('div');
+      card.className = 'wallet-emp-card';
+      card.innerHTML = `
+        <div class="wallet-emp-head">
+          <div>
+            <strong>${escapeHtml(emp.name)} (${escapeHtml(emp.member_id)})</strong>
+            <span class="text-sm text-gray">${escapeHtml(emp.email)}</span>
+          </div>
+          <span class="admin-mat-badge">${emp.tx_count} txns</span>
+        </div>
+        <div class="wallet-emp-stats">
+          <span>Wallet Balance: <strong>₹${Number(emp.wallet_balance || 0).toLocaleString()}</strong></span>
+          <span>Total Paid: <strong>₹${Number(emp.paid_earnings || 0).toLocaleString()}</strong></span>
+        </div>
+        <div class="wallet-emp-actions">
+          <button type="button" class="btn btn-outline btn-sm" onclick="openAdminWalletHistoryModal(${Number(emp.id)})">
+            <i class="fa-solid fa-clock-rotate-left"></i> View History
+          </button>
+          <button type="button" class="btn btn-primary btn-sm" onclick="openAdminCreditModal(${Number(emp.id)})">
+            <i class="fa-solid fa-plus"></i> Add Credit
+          </button>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="openAdminPayoutModal(${Number(emp.id)})">
+            <i class="fa-solid fa-money-bill-transfer"></i> Record Payment
+          </button>
+        </div>
+      `;
+      listEl.appendChild(card);
+    });
+  } catch (err) {
+    listEl.innerHTML = '<div class="team-msg team-msg-warn">Unable to load employee wallets.</div>';
+  }
+}
+
+function openAdminCreditModal(userId) {
+  const emp = adminWalletsList.find(e => e.id === userId);
+  if (!emp) return;
+  document.getElementById('adm-credit-user-id').value = emp.id;
+  document.getElementById('adm-credit-target').innerHTML = `<strong>${escapeHtml(emp.name)} (${escapeHtml(emp.member_id)})</strong><span>Current Wallet Balance: ₹${Number(emp.wallet_balance || 0).toLocaleString()}</span>`;
+  document.getElementById('adm-credit-amount').value = '';
+  document.getElementById('adm-credit-desc').value = '';
+  document.getElementById('adm-credit-error').innerHTML = '';
+  openModal('modal-admin-wallet-credit');
+}
+
+async function submitAdminWalletCredit() {
+  if (walletActionBusy || !isDesignatedAdmin()) return;
+  const userId = document.getElementById('adm-credit-user-id').value;
+  const amount = document.getElementById('adm-credit-amount').value;
+  const description = document.getElementById('adm-credit-desc').value.trim();
+  const errEl = document.getElementById('adm-credit-error');
+  errEl.innerHTML = '';
+
+  walletActionBusy = true;
+  try {
+    const res = await fetch(`/api/admin/wallets/${userId}/credit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ amount, description })
+    });
+    const data = await res.json();
+    if (data.success) {
+      closeModal('modal-admin-wallet-credit');
+      showAdminWalletsBanner(data.message, true);
+      await loadAdminWallets();
+    } else {
+      errEl.innerHTML = `<div class="team-msg team-msg-warn">${escapeHtml(data.message || 'Unable to add credit.')}</div>`;
+    }
+  } catch (err) {
+    errEl.innerHTML = '<div class="team-msg team-msg-warn">Network error. Please try again.</div>';
+  } finally {
+    walletActionBusy = false;
+  }
+}
+
+function openAdminPayoutModal(userId) {
+  const emp = adminWalletsList.find(e => e.id === userId);
+  if (!emp) return;
+  document.getElementById('adm-payout-user-id').value = emp.id;
+  document.getElementById('adm-payout-target').innerHTML = `<strong>${escapeHtml(emp.name)} (${escapeHtml(emp.member_id)})</strong><span>Available Wallet Balance: ₹${Number(emp.wallet_balance || 0).toLocaleString()}</span>`;
+  document.getElementById('adm-payout-amount').value = '';
+  document.getElementById('adm-payout-method').value = 'UPI';
+  document.getElementById('adm-payout-status').value = 'Paid';
+  document.getElementById('adm-payout-ref').value = '';
+  document.getElementById('adm-payout-desc').value = '';
+  document.getElementById('adm-payout-error').innerHTML = '';
+  openModal('modal-admin-wallet-payout');
+}
+
+async function submitAdminWalletPayout() {
+  if (walletActionBusy || !isDesignatedAdmin()) return;
+  const userId = document.getElementById('adm-payout-user-id').value;
+  const payload = {
+    amount: document.getElementById('adm-payout-amount').value,
+    payment_method: document.getElementById('adm-payout-method').value,
+    payment_status: document.getElementById('adm-payout-status').value,
+    payment_ref: document.getElementById('adm-payout-ref').value.trim(),
+    description: document.getElementById('adm-payout-desc').value.trim()
+  };
+  const errEl = document.getElementById('adm-payout-error');
+  errEl.innerHTML = '';
+
+  walletActionBusy = true;
+  try {
+    const res = await fetch(`/api/admin/wallets/${userId}/payout`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (data.success) {
+      closeModal('modal-admin-wallet-payout');
+      showAdminWalletsBanner(data.message, true);
+      await loadAdminWallets();
+    } else {
+      errEl.innerHTML = `<div class="team-msg team-msg-warn">${escapeHtml(data.message || 'Unable to record payment.')}</div>`;
+    }
+  } catch (err) {
+    errEl.innerHTML = '<div class="team-msg team-msg-warn">Network error. Please try again.</div>';
+  } finally {
+    walletActionBusy = false;
+  }
+}
+
+async function openAdminWalletHistoryModal(userId) {
+  if (!isDesignatedAdmin()) return;
+  const listEl = document.getElementById('adm-history-list');
+  const targetEl = document.getElementById('adm-history-target');
+  targetEl.innerHTML = '<strong>Loading...</strong>';
+  listEl.innerHTML = '';
+  openModal('modal-admin-wallet-history');
+
+  try {
+    const res = await fetch(`/api/admin/wallets/${userId}/transactions`, { cache: 'no-store' });
+    const data = await res.json();
+    if (!data.success) {
+      targetEl.innerHTML = `<strong>Error</strong><span>${escapeHtml(data.message || 'Unable to load history.')}</span>`;
+      return;
+    }
+    const emp = data.employee;
+    targetEl.innerHTML = `<strong>${escapeHtml(emp.name)} (${escapeHtml(emp.member_id)})</strong><span>Wallet Balance: ₹${Number(emp.wallet_balance || 0).toLocaleString()} &middot; Total Paid: ₹${Number(emp.paid_earnings || 0).toLocaleString()}</span>`;
+    if (!data.transactions || !data.transactions.length) {
+      listEl.innerHTML = '<div class="text-sm text-gray p-3">No wallet transactions recorded yet.</div>';
+      return;
+    }
+    listEl.innerHTML = data.transactions.map(tx => {
+      const markBtn = (tx.tx_type === 'payout' && tx.payment_status === 'Pending')
+        ? `<div class="mt-2"><button type="button" class="btn btn-primary btn-sm" onclick="markAdminPayoutPaid(${Number(tx.id)}, ${Number(emp.id)})">Mark Paid</button></div>`
+        : '';
+      return `<div>${formatWalletTxHtml(tx)}${markBtn}</div>`;
+    }).join('');
+  } catch (err) {
+    targetEl.innerHTML = '<strong>Error</strong><span>Unable to load history.</span>';
+  }
+}
+
+async function markAdminPayoutPaid(txId, userId) {
+  const ref = prompt('Enter UPI / Bank Transfer reference ID (UTR):');
+  if (ref === null) return;
+  try {
+    const res = await fetch(`/api/admin/wallets/transactions/${txId}/mark-paid`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ payment_ref: ref.trim() })
+    });
+    const data = await res.json();
+    if (data.success) {
+      await openAdminWalletHistoryModal(userId);
+      await loadAdminWallets();
+    } else {
+      alert(data.message || 'Unable to mark payout as Paid.');
+    }
+  } catch (err) {
+    alert('Network error. Please try again.');
+  }
+}
+
+// --------------------------------------------------------
+// USER-SIDE TRAINING & RESOURCES (DYNAMICALLY INTEGRATED WITH ADMIN CRUD)
+// --------------------------------------------------------
+let currentTrainingLanguage = 'all';
 
 function onLanguageChanged() {
   currentTrainingLanguage = document.getElementById('training-language-select').value;
@@ -968,37 +1257,43 @@ function returnToTrainingHub() {
   document.getElementById('training-language-select').value = currentTrainingLanguage;
 }
 
+function formatLangBadge(lang) {
+  return lang === 'all' ? 'All Languages' : lang;
+}
+
 async function navigateToTrainingSection(category) {
   currentTrainingLanguage = document.getElementById('training-language-select').value;
+  const langLabel = formatLangBadge(currentTrainingLanguage);
 
   if (category === 'video') {
     switchTab('training-videos');
-    document.getElementById('badge-lang-videos').innerText = currentTrainingLanguage;
-    document.getElementById('videos-page-title').innerText = `Training Videos (${currentTrainingLanguage})`;
+    document.getElementById('badge-lang-videos').innerText = langLabel;
+    document.getElementById('videos-page-title').innerText = `Training Videos (${langLabel})`;
     await loadTrainingVideosPage(currentTrainingLanguage);
   }
   else if (category === 'sales_script') {
     switchTab('training-scripts');
-    document.getElementById('badge-lang-scripts').innerText = currentTrainingLanguage;
-    document.getElementById('scripts-page-title').innerText = `Sales Scripts (${currentTrainingLanguage})`;
+    document.getElementById('badge-lang-scripts').innerText = langLabel;
+    document.getElementById('scripts-page-title').innerText = `Sales Scripts (${langLabel})`;
     await loadSalesScriptsPage(currentTrainingLanguage);
   }
   else if (category === 'faq') {
     switchTab('training-faq');
-    document.getElementById('badge-lang-faq').innerText = currentTrainingLanguage;
-    document.getElementById('faq-page-title').innerText = `FAQs (${currentTrainingLanguage})`;
-    await loadFaqPage(currentTrainingLanguage);
+    const faqLang = currentTrainingLanguage === 'all' ? 'English' : currentTrainingLanguage;
+    document.getElementById('badge-lang-faq').innerText = faqLang;
+    document.getElementById('faq-page-title').innerText = `FAQs (${faqLang})`;
+    await loadFaqPage(faqLang);
   }
   else if (category === 'poster') {
     switchTab('training-posters');
-    document.getElementById('badge-lang-posters').innerText = currentTrainingLanguage;
-    document.getElementById('posters-page-title').innerText = `Marketing Posters (${currentTrainingLanguage})`;
+    document.getElementById('badge-lang-posters').innerText = langLabel;
+    document.getElementById('posters-page-title').innerText = `Marketing Posters (${langLabel})`;
     await loadPostersPage(currentTrainingLanguage);
   }
   else if (category === 'smart_book') {
     switchTab('training-smartbook');
-    document.getElementById('badge-lang-smartbook').innerText = currentTrainingLanguage;
-    document.getElementById('smartbook-page-title').innerText = `Sample Smart Books (${currentTrainingLanguage})`;
+    document.getElementById('badge-lang-smartbook').innerText = langLabel;
+    document.getElementById('smartbook-page-title').innerText = `Sample Smart Books (${langLabel})`;
     await loadSmartBooksPage(currentTrainingLanguage);
   }
 }
@@ -1013,7 +1308,7 @@ async function loadTrainingVideosPage(lang) {
     container.innerHTML = '';
 
     if (!data.items || data.items.length === 0) {
-      container.innerHTML = `<div class="empty-state-box"><i class="fa-solid fa-film"></i><p>No published training videos available for ${escapeHtml(lang)}.</p></div>`;
+      container.innerHTML = `<div class="empty-state-box"><i class="fa-solid fa-film"></i><p>No published training videos available for ${escapeHtml(formatLangBadge(lang))}.</p></div>`;
       return;
     }
 
@@ -1022,21 +1317,23 @@ async function loadTrainingVideosPage(lang) {
       card.className = 'script-card-item video-card-item';
       const safeLink = /^https?:\/\//i.test(item.content || '') ? item.content : '';
       const videoPlayerHtml = item.has_file
-        ? `<video class="training-video-player" controls preload="metadata" src="${escapeHtml(item.view_url)}"></video>`
+        ? `<video class="training-video-player" controls preload="metadata" playsinline src="${escapeHtml(item.view_url)}"></video>`
         : '';
       const descLine = item.description ? `<div class="text-sm text-gray">${escapeHtml(item.description)}</div>` : '';
+      const langBadge = `<span class="admin-mat-badge">${escapeHtml(item.language)}</span>`;
       const linkBtn = safeLink
         ? `<a href="${escapeHtml(safeLink)}" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-sm"><i class="fa-solid fa-play"></i> Watch</a>`
-        : '';
+        : (item.has_file ? `<a href="${escapeHtml(item.view_url)}" target="_blank" class="btn btn-primary btn-sm"><i class="fa-solid fa-play"></i> Open Video</a>` : '');
       const dlBtn = item.has_file
         ? `<a href="${escapeHtml(item.download_url)}" class="btn btn-outline btn-sm"><i class="fa-solid fa-download"></i> Download</a>`
         : '';
 
       card.innerHTML = `
-        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px; flex-wrap:wrap;">
           <div style="flex:1;">
             <span class="script-card-title">${escapeHtml(item.title)}</span>
             ${descLine}
+            <div class="admin-mat-badges">${langBadge}</div>
           </div>
           <div class="script-actions-row">
             ${linkBtn}
@@ -1077,7 +1374,7 @@ async function loadSalesScriptsPage(lang) {
     container.innerHTML = '';
 
     if (!data.items || data.items.length === 0) {
-      container.innerHTML = `<div class="empty-state-box"><i class="fa-solid fa-file-circle-xmark"></i><p>No published sales scripts available for ${escapeHtml(lang)}.</p></div>`;
+      container.innerHTML = `<div class="empty-state-box"><i class="fa-solid fa-file-circle-xmark"></i><p>No published sales scripts available for ${escapeHtml(formatLangBadge(lang))}.</p></div>`;
       return;
     }
 
@@ -1109,6 +1406,7 @@ async function loadSalesScriptsPage(lang) {
         <div style="flex:1;">
           <div class="script-card-title">${escapeHtml(item.title)}</div>
           ${item.description ? `<div class="text-sm text-gray">${escapeHtml(item.description)}</div>` : ''}
+          <div class="admin-mat-badges"><span class="admin-mat-badge">${escapeHtml(item.language)}</span></div>
         </div>
         <div class="script-actions-row">
           ${viewBtn}
@@ -1246,7 +1544,7 @@ async function loadPostersPage(lang) {
     container.innerHTML = '';
 
     if (!data.items || data.items.length === 0) {
-      container.innerHTML = `<div class="empty-state-box" style="grid-column: span 2;"><i class="fa-solid fa-images"></i><p>No published posters available for ${escapeHtml(lang)}.</p></div>`;
+      container.innerHTML = `<div class="empty-state-box" style="grid-column: span 2;"><i class="fa-solid fa-images"></i><p>No published posters available for ${escapeHtml(formatLangBadge(lang))}.</p></div>`;
       return;
     }
 
@@ -1282,7 +1580,7 @@ async function loadSmartBooksPage(lang) {
     container.innerHTML = '';
 
     if (!data.items || data.items.length === 0) {
-      container.innerHTML = `<div class="empty-state-box"><i class="fa-solid fa-book-bookmark"></i><p>No published sample materials available for ${escapeHtml(lang)}.</p></div>`;
+      container.innerHTML = `<div class="empty-state-box"><i class="fa-solid fa-book-bookmark"></i><p>No published sample materials available for ${escapeHtml(formatLangBadge(lang))}.</p></div>`;
       return;
     }
 
@@ -1304,6 +1602,7 @@ async function loadSmartBooksPage(lang) {
           <div>
             <strong>${escapeHtml(item.title)}</strong>
             <div class="text-sm text-gray">${escapeHtml(item.description || item.original_filename || 'Sample Smart Book material')}</div>
+            <div class="admin-mat-badges"><span class="admin-mat-badge">${escapeHtml(item.language)}</span></div>
           </div>
         </div>
         <div class="script-actions-row">
@@ -1330,6 +1629,24 @@ function openAdminUploadModal() {
   openAdminMaterialModal('video');
 }
 
+function showAdminMaterialStatusBanner(msg, ok = true) {
+  const banner = document.getElementById('admin-mat-status-banner');
+  if (!banner) return;
+  banner.innerHTML = `<div class="team-msg ${ok ? 'team-msg-ok' : 'team-msg-warn'}"><i class="fa-solid ${ok ? 'fa-circle-check' : 'fa-triangle-exclamation'}"></i> ${escapeHtml(msg)}</div>`;
+}
+
+function populateCategoryDropdownSingle(category) {
+  const catSelect = document.getElementById('adm-mat-cat');
+  const meta = MATERIAL_CATEGORY_META[category] || MATERIAL_CATEGORY_META.video;
+  if (!catSelect) return;
+  catSelect.innerHTML = '';
+  const opt = document.createElement('option');
+  opt.value = category;
+  opt.textContent = meta.label;
+  catSelect.appendChild(opt);
+  catSelect.value = category;
+}
+
 function onAdminMaterialCategoryChange() {
   const cat = document.getElementById('adm-mat-cat').value;
   const meta = MATERIAL_CATEGORY_META[cat] || MATERIAL_CATEGORY_META.video;
@@ -1352,7 +1669,7 @@ function openAdminMaterialModal(category = 'video') {
   if (!isDesignatedAdmin()) return;
   document.getElementById('admin-material-form').reset();
   document.getElementById('adm-mat-id').value = '';
-  document.getElementById('adm-mat-cat').value = category;
+  populateCategoryDropdownSingle(category);
   document.getElementById('adm-mat-lang').value = 'English';
   document.getElementById('adm-mat-active').checked = true;
   document.getElementById('adm-mat-modal-title').innerText = `Add ${MATERIAL_CATEGORY_META[category]?.label || 'Training Material'}`;
@@ -1375,7 +1692,7 @@ function openEditMaterialModal(materialId) {
   }
   document.getElementById('admin-material-form').reset();
   document.getElementById('adm-mat-id').value = item.id;
-  document.getElementById('adm-mat-cat').value = item.category;
+  populateCategoryDropdownSingle(item.category);
   document.getElementById('adm-mat-lang').value = item.language;
   document.getElementById('adm-mat-title').value = item.title || '';
   document.getElementById('adm-mat-desc').value = item.description || '';
@@ -1527,6 +1844,7 @@ async function submitAdminMaterial(e) {
     if (data && data.success) {
       closeModal('modal-admin-upload');
       document.getElementById('admin-material-form').reset();
+      showAdminMaterialStatusBanner(data.message || 'Training material saved successfully.', true);
       await loadAdminMaterials();
       updateTrainingHubCounts();
     } else {
@@ -1547,13 +1865,14 @@ async function toggleMaterialPublish(materialId) {
     const res = await fetch(`/api/admin/materials/${materialId}/toggle-publish`, { method: 'POST' });
     const data = await res.json();
     if (data.success) {
+      showAdminMaterialStatusBanner(data.message || 'Publish status updated.', true);
       await loadAdminMaterials();
       updateTrainingHubCounts();
     } else {
-      alert(data.message || 'Unable to change publish status.');
+      showAdminMaterialStatusBanner(data.message || 'Unable to change publish status.', false);
     }
   } catch (err) {
-    alert('Network error. Please try again.');
+    showAdminMaterialStatusBanner('Network error while updating publish status.', false);
   }
 }
 
@@ -1567,13 +1886,14 @@ async function deleteAdminMaterial(materialId) {
     const res = await fetch(`/api/admin/materials/${materialId}`, { method: 'DELETE' });
     const data = await res.json();
     if (data.success) {
+      showAdminMaterialStatusBanner(data.message || 'Material deleted.', true);
       await loadAdminMaterials();
       updateTrainingHubCounts();
     } else {
-      alert(data.message || 'Unable to delete material.');
+      showAdminMaterialStatusBanner(data.message || 'Unable to delete material.', false);
     }
   } catch (err) {
-    alert('Network error. Please try again.');
+    showAdminMaterialStatusBanner('Network error while deleting material.', false);
   }
 }
 

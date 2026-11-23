@@ -1,4 +1,4 @@
-const ADMIN_DESIGNATED_EMAIL = 'varsha.thirumal21@gmail.com';
+const ADMIN_DESIGNATED_EMAIL = 'v18728763@gmail.com';
 
 let currentUser = null;
 let currentBanners = [];
@@ -12,8 +12,13 @@ let materialSubmitBusy = false;
 let walletActionBusy = false;
 
 const currentLoadedScriptsMap = {};
+const currentLoadedSmartBooksMap = {};
+const currentLoadedPostersMap = {};
 const adminMaterialsMap = {};
 let adminWalletsList = [];
+
+let trainingPollTimer = null;
+let lastTrainingSignature = '';
 
 const MATERIAL_CATEGORY_META = {
   video: {
@@ -30,7 +35,7 @@ const MATERIAL_CATEGORY_META = {
     accept: '.txt,.pdf,.doc,.docx,.rtf,.odt',
     hint: 'Supported formats: TXT, PDF, DOC, DOCX, RTF, ODT (up to 50 MB) and/or script text above.',
     contentLabel: 'Sales Script Content',
-    contentPlaceholder: 'Enter script lines...',
+    contentPlaceholder: 'Enter script lines (each line becomes a bullet point)...',
     showContent: true,
     fileLabel: 'Attach Script Document (optional if entering text)'
   },
@@ -60,6 +65,21 @@ function isDesignatedAdmin() {
     currentUser.role === 'admin' &&
     String(currentUser.email || '').trim().toLowerCase() === ADMIN_DESIGNATED_EMAIL
   );
+}
+
+function showToast(message, type = 'info') {
+  const container = document.getElementById('toast-container');
+  if (!container) return;
+  const toast = document.createElement('div');
+  const iconCls = type === 'success'
+    ? 'fa-circle-check'
+    : (type === 'error' ? 'fa-circle-exclamation' : 'fa-circle-info');
+  toast.className = `toast-item ${type === 'success' ? 'toast-success' : (type === 'error' ? 'toast-error' : '')}`;
+  toast.innerHTML = `<i class="fa-solid ${iconCls}"></i><span>${escapeHtml(message)}</span>`;
+  container.appendChild(toast);
+  setTimeout(() => {
+    toast.remove();
+  }, 3200);
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -162,6 +182,7 @@ function renderAppShell() {
   if (adsAdminBox) adsAdminBox.classList.toggle('hidden', !adminFlag);
 
   startBannerPolling();
+  startTrainingPolling();
 
   if (adminFlag) {
     switchTab('admin-team', false);
@@ -184,11 +205,12 @@ function switchTab(tabId, addToHistory = true) {
 
   document.querySelectorAll('.sub-screen').forEach(s => s.classList.remove('active'));
   document.querySelectorAll('.sidebar-nav-item').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.bottom-nav-item').forEach(b => b.classList.remove('active'));
 
   const targetScreen = document.getElementById(`screen-${tabId}`);
   if (targetScreen) targetScreen.classList.add('active');
 
-  document.querySelectorAll('.sidebar-nav-item').forEach(btn => {
+  document.querySelectorAll('.sidebar-nav-item, .bottom-nav-item').forEach(btn => {
     const dt = btn.getAttribute('data-tab');
     if (dt === tabId || (tabId.startsWith('training') && dt === 'training')) {
       btn.classList.add('active');
@@ -203,7 +225,7 @@ function switchTab(tabId, addToHistory = true) {
     'training-scripts': 'Sales Scripts',
     'training-faq': 'FAQ',
     'training-posters': 'Posters',
-    'training-smartbook': 'Sample Smart Book',
+    'training-smartbook': 'Sample Smart Books',
     'reports': 'My Reports',
     'wallet': 'Wallet & History',
     'profile': 'My Profile',
@@ -221,10 +243,11 @@ function switchTab(tabId, addToHistory = true) {
   if (tabId === 'reports') loadReports();
   if (tabId === 'wallet') loadWalletPage();
   if (tabId === 'admin') loadAdminPanel();
-  document.body.classList.toggle('admin-team-wide', tabId === 'admin-team');
   if (tabId === 'admin-team') loadAdminTeam();
   if (tabId === 'admin-materials') loadAdminMaterials();
   if (tabId === 'admin-wallets') loadAdminWallets();
+
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function navigatePreviousScreen() {
@@ -322,7 +345,7 @@ async function sendLoginEmailOTP() {
 
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!email || !emailRegex.test(email)) {
-    alert('Please enter a valid email address (e.g. name@gmail.com).');
+    showToast('Please enter a valid email address (e.g. name@gmail.com).', 'error');
     return;
   }
 
@@ -343,17 +366,17 @@ async function sendLoginEmailOTP() {
 
     const data = await res.json();
     if (data.success) {
-      alert(data.message);
+      showToast(data.message, 'success');
       startResendCooldown(data.cooldown || 60);
       focusOtpCollector();
     } else {
-      alert(data.message || 'Error delivering verification code.');
+      showToast(data.message || 'Error delivering verification code.', 'error');
       btn.disabled = false;
       btn.innerText = 'Send OTP';
     }
   } catch (err) {
     console.error('Fetch error:', err);
-    alert('Error communicating with server. Check terminal console.');
+    showToast('Error communicating with server.', 'error');
     btn.disabled = false;
     btn.innerText = 'Send OTP';
   }
@@ -393,7 +416,7 @@ async function verifyLoginEmailOTP() {
   const digits = collector ? collector.value.trim() : '';
 
   if (digits.length !== 6) {
-    alert('Please enter the complete 6-digit verification code.');
+    showToast('Please enter the complete 6-digit verification code.', 'error');
     return;
   }
 
@@ -415,12 +438,12 @@ async function verifyLoginEmailOTP() {
       currentUser = data.user;
       renderAppShell();
     } else {
-      alert(data.message);
+      showToast(data.message, 'error');
       resetVirtualOtp();
       focusOtpCollector();
     }
   } catch (err) {
-    alert('Failed to verify OTP. Please try again.');
+    showToast('Failed to verify OTP. Please try again.', 'error');
   } finally {
     btn.innerText = 'Login';
   }
@@ -432,7 +455,7 @@ async function logoutApp() {
 }
 
 // --------------------------------------------------------
-// DASHBOARD
+// DASHBOARD (Metrics + Learning Categories + Recent Materials)
 // --------------------------------------------------------
 async function loadDashboard() {
   if (currentUser && currentUser.member_id) {
@@ -443,24 +466,101 @@ async function loadDashboard() {
   let url = '/api/dashboard';
   if (dateVal) url += `?date=${encodeURIComponent(dateVal)}`;
 
-  const res = await fetch(url, { cache: 'no-store' });
-  const data = await res.json();
-  if (data.success) {
-    document.getElementById('metric-membership').innerText = data.metrics.membership_count;
-    document.getElementById('metric-smartbook').innerText = data.metrics.smartbook_count;
-    document.getElementById('metric-earnings').innerText = `₹${Number(data.metrics.paid_earnings || 0).toLocaleString()}`;
-    document.getElementById('metric-total-customers').innerText = data.metrics.total_customers || 0;
+  try {
+    const res = await fetch(url, { cache: 'no-store' });
+    const data = await res.json();
+    if (data.success) {
+      document.getElementById('metric-membership').innerText = data.metrics.membership_count;
+      document.getElementById('metric-smartbook').innerText = data.metrics.smartbook_count;
+      document.getElementById('metric-earnings').innerText = `₹${Number(data.metrics.paid_earnings || 0).toLocaleString()}`;
+      document.getElementById('metric-total-customers').innerText = data.metrics.total_customers || 0;
 
-    updateDashboardStatusCounts(data.metrics.status_counts);
-    updateSidebarWallet(data.metrics.wallet_balance);
+      updateDashboardStatusCounts(data.metrics.status_counts);
+      updateSidebarWallet(data.metrics.wallet_balance);
 
-    if (currentUser) {
-      currentUser.wallet_balance = data.metrics.wallet_balance;
+      if (currentUser) {
+        currentUser.wallet_balance = data.metrics.wallet_balance;
+      }
+
+      currentBanners = data.banners;
+      startBannerRotation();
+    }
+  } catch (err) { /* ignore */ }
+
+  loadDashboardTrainingSummary();
+}
+
+async function loadDashboardTrainingSummary() {
+  const recentBox = document.getElementById('dash-recent-materials');
+  try {
+    const res = await fetch('/api/training/resources?language=all', { cache: 'no-store' });
+    const data = await res.json();
+    if (!data.success) return;
+
+    lastTrainingSignature = trainingSignature(data.items);
+
+    const counts = data.counts || {};
+    const vCount = counts.video || 0;
+    const sCount = counts.sales_script || 0;
+    const bCount = counts.smart_book || 0;
+    const pCount = counts.poster || 0;
+
+    const setTxt = (id, text) => {
+      const el = document.getElementById(id);
+      if (el) el.innerText = text;
+    };
+    setTxt('dash-cat-count-video', `${vCount} video${vCount === 1 ? '' : 's'}`);
+    setTxt('dash-cat-count-sales_script', `${sCount} script${sCount === 1 ? '' : 's'}`);
+    setTxt('dash-cat-count-smart_book', `${bCount} file${bCount === 1 ? '' : 's'}`);
+    setTxt('dash-cat-count-poster', `${pCount} poster${pCount === 1 ? '' : 's'}`);
+
+    if (!recentBox) return;
+    const recentItems = (data.items || [])
+      .filter(i => ['video', 'sales_script', 'smart_book', 'poster'].includes(i.category))
+      .slice(0, 6);
+
+    if (!recentItems.length) {
+      recentBox.innerHTML = '<div class="empty-state-box"><i class="fa-solid fa-photo-film"></i><p>No training materials published yet.</p></div>';
+      return;
     }
 
-    currentBanners = data.banners;
-    startBannerRotation();
+    recentBox.innerHTML = '';
+    recentItems.forEach(item => {
+      const catLabel = MATERIAL_CATEGORY_META[item.category]?.label || item.category;
+      const iconCls = item.category === 'video'
+        ? 'fa-brands fa-youtube'
+        : (item.category === 'sales_script'
+          ? 'fa-solid fa-note-sticky'
+          : (item.category === 'poster' ? 'fa-solid fa-image' : 'fa-solid fa-file-lines'));
+
+      const card = document.createElement('div');
+      card.className = 'dash-recent-card';
+      card.innerHTML = `
+        <div class="dash-recent-top">
+          <div class="tr-icon-col ${item.category === 'video' || item.category === 'poster' ? 'tr-icon-red' : 'tr-icon-neutral'}">
+            <i class="${iconCls}"></i>
+          </div>
+          <div style="flex:1;">
+            <div class="dash-recent-title">${escapeHtml(item.title)}</div>
+            <div class="dash-recent-meta">${escapeHtml(catLabel)} &middot; ${escapeHtml(item.language)}</div>
+          </div>
+        </div>
+        <button type="button" class="btn btn-secondary btn-sm w-100" onclick="openCategoryFromDashboard('${escapeHtml(item.category)}')">
+          Open ${escapeHtml(catLabel)} <i class="fa-solid fa-arrow-right"></i>
+        </button>
+      `;
+      recentBox.appendChild(card);
+    });
+  } catch (err) {
+    if (recentBox) recentBox.innerHTML = '<div class="empty-state-box"><p>Unable to load recent materials.</p></div>';
   }
+}
+
+function openCategoryFromDashboard(category) {
+  currentTrainingLanguage = 'all';
+  const sel = document.getElementById('training-language-select');
+  if (sel) sel.value = 'all';
+  navigateToTrainingSection(category);
 }
 
 function updateDashboardStatusCounts(counts) {
@@ -522,7 +622,7 @@ function renderBannerSlide(idx) {
   if (slide) {
     if (b.image_url) {
       const safeUrl = String(b.image_url).replace(/"/g, '%22');
-      slide.style.backgroundImage = `linear-gradient(rgba(15,23,42,0.50), rgba(15,23,42,0.50)), url("${safeUrl}")`;
+      slide.style.backgroundImage = `linear-gradient(rgba(15,23,42,0.55), rgba(15,23,42,0.55)), url("${safeUrl}")`;
       slide.style.backgroundSize = 'cover';
       slide.style.backgroundPosition = 'center';
     } else {
@@ -571,6 +671,47 @@ function startBannerPolling() {
 }
 
 // --------------------------------------------------------
+// AUTO-SYNC TRAINING MATERIALS (No Manual Refresh Required)
+// --------------------------------------------------------
+function trainingSignature(items) {
+  return JSON.stringify((items || []).map(i => [i.id, i.category, i.language, i.title, i.description, i.content, i.updated_at, i.original_filename]));
+}
+
+async function pollTrainingUpdates() {
+  if (!currentUser || document.hidden) return;
+  const activeScreen = document.querySelector('.sub-screen.active');
+  if (!activeScreen) return;
+  const sid = activeScreen.id;
+  const onTrainingOrDash = sid === 'screen-dashboard' || sid.startsWith('screen-training');
+  if (!onTrainingOrDash) return;
+
+  try {
+    const lang = sid === 'screen-dashboard' ? 'all' : (document.getElementById('training-language-select')?.value || currentTrainingLanguage);
+    const res = await fetch(`/api/training/resources?language=${encodeURIComponent(lang)}`, { cache: 'no-store' });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.success) return;
+
+    const sig = trainingSignature(data.items);
+    if (sig === lastTrainingSignature) return;
+    lastTrainingSignature = sig;
+
+    if (sid === 'screen-dashboard') loadDashboardTrainingSummary();
+    else if (sid === 'screen-training') updateTrainingHubCounts();
+    else if (sid === 'screen-training-videos') loadTrainingVideosPage(lang);
+    else if (sid === 'screen-training-scripts') loadSalesScriptsPage(lang);
+    else if (sid === 'screen-training-posters') loadPostersPage(lang);
+    else if (sid === 'screen-training-smartbook') loadSmartBooksPage(lang);
+  } catch (err) { /* ignore */ }
+}
+
+function startTrainingPolling() {
+  if (trainingPollTimer) return;
+  trainingPollTimer = setInterval(pollTrainingUpdates, 10000);
+  document.addEventListener('visibilitychange', pollTrainingUpdates);
+}
+
+// --------------------------------------------------------
 // ADMIN ONLY: MANAGE THE 3 DASHBOARD ADVERTISEMENTS
 // --------------------------------------------------------
 const AD_MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -584,7 +725,7 @@ function openAdsManager() {
 
 async function loadAdsManager() {
   const box = document.getElementById('ads-slots-container');
-  box.innerHTML = '<div class="text-center p-3 text-gray"><i class="fa-solid fa-spinner fa-spin"></i> Loading advertisements...</div>';
+  box.innerHTML = '<div class="loading-box"><i class="fa-solid fa-spinner fa-spin"></i> Loading advertisements...</div>';
   try {
     const res = await fetch('/api/admin/banners', { cache: 'no-store' });
     const data = await res.json();
@@ -706,19 +847,18 @@ async function deleteAdSlot(slot) {
 
 function copyReferralLink() {
   const input = document.getElementById('referral-url');
-  navigator.clipboard.writeText(input.value);
-  alert('Referral link copied to clipboard!');
+  executeClipboardCopy(input.value, 'Referral link copied!');
 }
 
 function shareSocial(network) {
   const link = document.getElementById('referral-url').value;
-  navigator.clipboard.writeText(link);
+  navigator.clipboard?.writeText(link).catch(() => {});
 
   if (network === 'whatsapp') {
     const msg = encodeURIComponent(`Join RK Solutions Smart Book Affiliate Program: ${link}`);
     window.open(`https://api.whatsapp.com/send?text=${msg}`, '_blank');
   } else if (network === 'instagram') {
-    alert("Referral Link copied to clipboard! Opening Instagram...");
+    showToast('Referral link copied! Opening Instagram...', 'success');
     window.open('https://www.instagram.com/direct/inbox/', '_blank');
   } else if (network === 'facebook') {
     window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(link)}`, '_blank');
@@ -750,37 +890,43 @@ async function loadCustomerList() {
   if (search) url += `&search=${encodeURIComponent(search)}`;
   if (dateVal) url += `&date=${encodeURIComponent(dateVal)}`;
 
-  const res = await fetch(url, { cache: 'no-store' });
-  const data = await res.json();
-  updateStatusCounts(data.status_counts);
   const container = document.getElementById('customer-list-container');
-  container.innerHTML = '';
+  container.innerHTML = '<div class="loading-box"><i class="fa-solid fa-spinner fa-spin"></i> Loading customers...</div>';
 
-  if (!data.customers || data.customers.length === 0) {
-    container.innerHTML = `<div class="text-center text-gray p-3">No customers found.</div>`;
-    return;
+  try {
+    const res = await fetch(url, { cache: 'no-store' });
+    const data = await res.json();
+    updateStatusCounts(data.status_counts);
+    container.innerHTML = '';
+
+    if (!data.customers || data.customers.length === 0) {
+      container.innerHTML = `<div class="empty-state-box"><i class="fa-solid fa-users"></i><p>No customers found.</p></div>`;
+      return;
+    }
+
+    data.customers.forEach(c => {
+      const card = document.createElement('div');
+      card.className = 'customer-item-card';
+      card.innerHTML = `
+        <div class="cust-details">
+          <strong>${escapeHtml(c.name)}</strong>
+          <span>${escapeHtml(c.phone)} &bull; ${escapeHtml(c.city || 'Tamil Nadu')}</span>
+          <div><span class="badge-status badge-${escapeHtml(c.status)}">${escapeHtml(c.status)}</span> <span class="text-sm text-gray">${escapeHtml(c.created_date)}</span></div>
+        </div>
+        <div class="cust-actions">
+          <a href="https://wa.me/91${String(c.phone || '').replace(/[^0-9]/g, '').slice(-10)}" target="_blank" class="whatsapp-chat-btn" title="Open WhatsApp Chat">
+            <i class="fa-brands fa-whatsapp"></i>
+          </a>
+          <button class="btn btn-outline btn-sm" onclick="openEditCustomerModal(${c.id}, '${escapeQuotes(c.name)}', '${escapeQuotes(c.status)}', '${escapeQuotes(c.comments || '')}')">
+            Edit
+          </button>
+        </div>
+      `;
+      container.appendChild(card);
+    });
+  } catch (err) {
+    container.innerHTML = '<div class="empty-state-box"><p>Unable to load customers.</p></div>';
   }
-
-  data.customers.forEach(c => {
-    const card = document.createElement('div');
-    card.className = 'customer-item-card';
-    card.innerHTML = `
-      <div class="cust-details">
-        <strong>${escapeHtml(c.name)}</strong>
-        <span>${escapeHtml(c.phone)} • ${escapeHtml(c.city || 'Tamil Nadu')}</span>
-        <div><span class="badge-status badge-${escapeHtml(c.status)}">${escapeHtml(c.status)}</span> <span class="text-sm text-gray">${escapeHtml(c.created_date)}</span></div>
-      </div>
-      <div class="cust-actions">
-        <a href="https://wa.me/91${String(c.phone || '').replace(/[^0-9]/g, '').slice(-10)}" target="_blank" class="whatsapp-chat-btn" title="Open WhatsApp Chat">
-          <i class="fa-brands fa-whatsapp"></i>
-        </a>
-        <button class="btn btn-outline btn-sm" onclick="openEditCustomerModal(${c.id}, '${escapeQuotes(c.name)}', '${escapeQuotes(c.status)}', '${escapeQuotes(c.comments || '')}')">
-          Edit
-        </button>
-      </div>
-    `;
-    container.appendChild(card);
-  });
 }
 
 function updateStatusCounts(counts) {
@@ -822,7 +968,7 @@ function proceedToPaymentGateway() {
   const youtubeUrl = document.getElementById('cust-youtube').value.trim();
 
   if (!name || !phone) {
-    alert('Please enter customer name and phone number.');
+    showToast('Please enter customer name and phone number.', 'error');
     return;
   }
 
@@ -881,13 +1027,14 @@ async function confirmPaymentAndSaveCustomer() {
         if (currentUser) currentUser.wallet_balance = data.wallet_balance;
       }
 
+      showToast(data.wallet_credited ? `Customer joined! +₹${data.wallet_credited} credited to wallet.` : 'Customer payment recorded!', 'success');
       tempCustomerPayload = null;
       switchTab('payment-success');
     } else {
-      alert(data.message);
+      showToast(data.message || 'Unable to save customer.', 'error');
     }
   } catch (err) {
-    alert('Failed to save customer. Please try again.');
+    showToast('Failed to save customer. Please try again.', 'error');
   } finally {
     customerSubmitBusy = false;
     if (confirmBtn) {
@@ -935,10 +1082,11 @@ async function saveCustomerStatus() {
       updateSidebarWallet(data.wallet_balance);
       if (currentUser) currentUser.wallet_balance = data.wallet_balance;
     }
+    showToast('Customer status updated.', 'success');
     closeModal('modal-edit-customer');
     loadCustomerList();
   } else {
-    alert(data.message);
+    showToast(data.message || 'Failed to update status.', 'error');
   }
 }
 
@@ -987,12 +1135,12 @@ function formatWalletTxHtml(tx) {
 
 async function loadWalletPage() {
   const listEl = document.getElementById('wallet-transactions-list');
-  listEl.innerHTML = '<div class="text-center text-gray p-3"><i class="fa-solid fa-spinner fa-spin"></i> Loading wallet history...</div>';
+  listEl.innerHTML = '<div class="loading-box"><i class="fa-solid fa-spinner fa-spin"></i> Loading wallet history...</div>';
   try {
     const res = await fetch('/api/wallet', { cache: 'no-store' });
     const data = await res.json();
     if (!data.success) {
-      listEl.innerHTML = `<div class="text-center text-gray p-3">${escapeHtml(data.message || 'Unable to load wallet.')}</div>`;
+      listEl.innerHTML = `<div class="empty-state-box"><p>${escapeHtml(data.message || 'Unable to load wallet.')}</p></div>`;
       return;
     }
     document.getElementById('wallet-page-balance').innerText = `₹${Number(data.wallet_balance || 0).toLocaleString()}`;
@@ -1006,7 +1154,7 @@ async function loadWalletPage() {
     }
     listEl.innerHTML = data.transactions.map(formatWalletTxHtml).join('');
   } catch (err) {
-    listEl.innerHTML = '<div class="text-center text-gray p-3">Unable to load wallet history.</div>';
+    listEl.innerHTML = '<div class="empty-state-box"><p>Unable to load wallet history.</p></div>';
   }
 }
 
@@ -1027,7 +1175,7 @@ function showAdminWalletsBanner(msg, ok = true) {
 async function loadAdminWallets() {
   if (!isDesignatedAdmin()) return;
   const listEl = document.getElementById('admin-wallets-list');
-  listEl.innerHTML = '<div class="text-center text-gray p-3"><i class="fa-solid fa-spinner fa-spin"></i> Loading employee wallets...</div>';
+  listEl.innerHTML = '<div class="loading-box"><i class="fa-solid fa-spinner fa-spin"></i> Loading employee wallets...</div>';
   try {
     const res = await fetch('/api/admin/wallets', { cache: 'no-store' });
     const data = await res.json();
@@ -1105,6 +1253,7 @@ async function submitAdminWalletCredit() {
     if (data.success) {
       closeModal('modal-admin-wallet-credit');
       showAdminWalletsBanner(data.message, true);
+      showToast(data.message, 'success');
       await loadAdminWallets();
     } else {
       errEl.innerHTML = `<div class="team-msg team-msg-warn">${escapeHtml(data.message || 'Unable to add credit.')}</div>`;
@@ -1154,6 +1303,7 @@ async function submitAdminWalletPayout() {
     if (data.success) {
       closeModal('modal-admin-wallet-payout');
       showAdminWalletsBanner(data.message, true);
+      showToast(data.message, 'success');
       await loadAdminWallets();
     } else {
       errEl.innerHTML = `<div class="team-msg team-msg-warn">${escapeHtml(data.message || 'Unable to record payment.')}</div>`;
@@ -1208,18 +1358,19 @@ async function markAdminPayoutPaid(txId, userId) {
     });
     const data = await res.json();
     if (data.success) {
+      showToast('Payout marked as Paid.', 'success');
       await openAdminWalletHistoryModal(userId);
       await loadAdminWallets();
     } else {
-      alert(data.message || 'Unable to mark payout as Paid.');
+      showToast(data.message || 'Unable to mark payout as Paid.', 'error');
     }
   } catch (err) {
-    alert('Network error. Please try again.');
+    showToast('Network error. Please try again.', 'error');
   }
 }
 
 // --------------------------------------------------------
-// USER-SIDE TRAINING & RESOURCES (DYNAMICALLY INTEGRATED WITH ADMIN CRUD)
+// USER-SIDE TRAINING & RESOURCES
 // --------------------------------------------------------
 let currentTrainingLanguage = 'all';
 
@@ -1234,6 +1385,8 @@ async function updateTrainingHubCounts() {
     const res = await fetch(`/api/training/resources?language=${encodeURIComponent(lang)}`, { cache: 'no-store' });
     const data = await res.json();
     if (!data.success || !data.counts) return;
+
+    lastTrainingSignature = trainingSignature(data.items);
 
     const vCount = data.counts.video || 0;
     const sCount = data.counts.sales_script || 0;
@@ -1262,7 +1415,8 @@ function formatLangBadge(lang) {
 }
 
 async function navigateToTrainingSection(category) {
-  currentTrainingLanguage = document.getElementById('training-language-select').value;
+  const sel = document.getElementById('training-language-select');
+  currentTrainingLanguage = sel ? sel.value : 'all';
   const langLabel = formatLangBadge(currentTrainingLanguage);
 
   if (category === 'video') {
@@ -1298,9 +1452,15 @@ async function navigateToTrainingSection(category) {
   }
 }
 
+function extractYouTubeVideoId(url) {
+  if (!url) return '';
+  const m = String(url).match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+  return m ? m[1] : '';
+}
+
 async function loadTrainingVideosPage(lang) {
   const container = document.getElementById('videos-list-container');
-  container.innerHTML = '<div class="text-center p-3 text-gray"><i class="fa-solid fa-spinner fa-spin"></i> Loading videos...</div>';
+  container.innerHTML = '<div class="loading-box"><i class="fa-solid fa-spinner fa-spin"></i> Loading videos...</div>';
 
   try {
     const res = await fetch(`/api/training/resources?category=video&language=${encodeURIComponent(lang)}`, { cache: 'no-store' });
@@ -1314,38 +1474,50 @@ async function loadTrainingVideosPage(lang) {
 
     data.items.forEach((item) => {
       const card = document.createElement('div');
-      card.className = 'script-card-item video-card-item';
+      card.className = 'yt-video-card';
       const safeLink = /^https?:\/\//i.test(item.content || '') ? item.content : '';
-      const videoPlayerHtml = item.has_file
-        ? `<video class="training-video-player" controls preload="metadata" playsinline src="${escapeHtml(item.view_url)}"></video>`
-        : '';
-      const descLine = item.description ? `<div class="text-sm text-gray">${escapeHtml(item.description)}</div>` : '';
-      const langBadge = `<span class="admin-mat-badge">${escapeHtml(item.language)}</span>`;
+      const ytId = extractYouTubeVideoId(safeLink);
+
+      let mediaHtml = '';
+      if (item.has_file) {
+        mediaHtml = `<video class="training-video-player" controls preload="metadata" playsinline src="${escapeHtml(item.view_url)}"></video>`;
+      } else if (ytId) {
+        mediaHtml = `
+          <a href="${escapeHtml(safeLink)}" target="_blank" rel="noopener noreferrer" style="display:block; width:100%; height:100%;">
+            <img class="yt-thumb-img" src="https://img.youtube.com/vi/${escapeHtml(ytId)}/hqdefault.jpg" alt="${escapeHtml(item.title)}">
+            <div class="yt-play-overlay"><div class="yt-play-pill"><i class="fa-solid fa-play"></i></div></div>
+          </a>`;
+      } else {
+        mediaHtml = `
+          <a href="${escapeHtml(safeLink || '#')}" target="_blank" rel="noopener noreferrer" class="yt-thumb-fallback">
+            <i class="fa-solid fa-circle-play"></i>
+          </a>`;
+      }
+
+      const descLine = item.description ? `<div class="yt-video-meta">${escapeHtml(item.description)}</div>` : '';
       const linkBtn = safeLink
         ? `<a href="${escapeHtml(safeLink)}" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-sm"><i class="fa-solid fa-play"></i> Watch</a>`
-        : (item.has_file ? `<a href="${escapeHtml(item.view_url)}" target="_blank" class="btn btn-primary btn-sm"><i class="fa-solid fa-play"></i> Open Video</a>` : '');
+        : (item.has_file ? `<a href="${escapeHtml(item.view_url)}" target="_blank" class="btn btn-primary btn-sm"><i class="fa-solid fa-play"></i> View</a>` : '');
       const dlBtn = item.has_file
-        ? `<a href="${escapeHtml(item.download_url)}" class="btn btn-outline btn-sm"><i class="fa-solid fa-download"></i> Download</a>`
+        ? `<a href="${escapeHtml(item.download_url)}" download="${escapeHtml(item.original_filename || item.title)}" class="btn btn-outline btn-sm"><i class="fa-solid fa-download"></i> Download</a>`
         : '';
 
       card.innerHTML = `
-        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px; flex-wrap:wrap;">
-          <div style="flex:1;">
-            <span class="script-card-title">${escapeHtml(item.title)}</span>
-            ${descLine}
-            <div class="admin-mat-badges">${langBadge}</div>
-          </div>
-          <div class="script-actions-row">
+        <div class="yt-thumb-box">${mediaHtml}</div>
+        <div class="yt-video-info">
+          <div class="yt-video-title">${escapeHtml(item.title)}</div>
+          ${descLine}
+          <div class="admin-mat-badges"><span class="admin-mat-badge">Training Video &bull; ${escapeHtml(item.language)}</span></div>
+          <div class="yt-video-actions">
             ${linkBtn}
             ${dlBtn}
           </div>
         </div>
-        ${videoPlayerHtml}
       `;
       container.appendChild(card);
     });
   } catch (err) {
-    container.innerHTML = `<div class="empty-state-box"><p class="text-danger">Failed to load videos. Please try again.</p></div>`;
+    container.innerHTML = `<div class="empty-state-box"><p>Failed to load videos. Please try again.</p></div>`;
   }
 }
 
@@ -1364,9 +1536,16 @@ function normalizeToSingleBullets(rawText) {
     .join('\n');
 }
 
+function buildBulletItemsHtml(normalizedText) {
+  if (!normalizedText) return '';
+  const lines = normalizedText.split('\n').map(l => l.replace(/^•\s*/, '').trim()).filter(Boolean);
+  if (!lines.length) return '';
+  return `<ul class="script-bullet-list">${lines.map(l => `<li>${escapeHtml(l)}</li>`).join('')}</ul>`;
+}
+
 async function loadSalesScriptsPage(lang) {
   const container = document.getElementById('scripts-list-container');
-  container.innerHTML = '<div class="text-center p-3 text-gray"><i class="fa-solid fa-spinner fa-spin"></i> Loading scripts...</div>';
+  container.innerHTML = '<div class="loading-box"><i class="fa-solid fa-spinner fa-spin"></i> Loading scripts...</div>';
 
   try {
     const res = await fetch(`/api/training/resources?category=sales_script&language=${encodeURIComponent(lang)}`, { cache: 'no-store' });
@@ -1374,7 +1553,7 @@ async function loadSalesScriptsPage(lang) {
     container.innerHTML = '';
 
     if (!data.items || data.items.length === 0) {
-      container.innerHTML = `<div class="empty-state-box"><i class="fa-solid fa-file-circle-xmark"></i><p>No published sales scripts available for ${escapeHtml(formatLangBadge(lang))}.</p></div>`;
+      container.innerHTML = `<div class="empty-state-box"><i class="fa-solid fa-note-sticky"></i><p>No published sales scripts available for ${escapeHtml(formatLangBadge(lang))}.</p></div>`;
       return;
     }
 
@@ -1388,36 +1567,38 @@ async function loadSalesScriptsPage(lang) {
       };
 
       const hasText = Boolean(normalizedContent);
+      const bulletsHtml = buildBulletItemsHtml(normalizedContent);
       const viewBtn = hasText
-        ? `<button class="btn btn-outline btn-sm" onclick="handleScriptView(${Number(item.id)})"><i class="fa-regular fa-eye"></i> View</button>`
-        : (item.has_file && item.file_ext === 'pdf'
-          ? `<a href="${escapeHtml(item.view_url)}" target="_blank" class="btn btn-outline btn-sm"><i class="fa-regular fa-eye"></i> View</a>`
+        ? `<button class="btn btn-secondary btn-sm" onclick="handleScriptView(${Number(item.id)})"><i class="fa-regular fa-eye"></i> View</button>`
+        : (item.has_file
+          ? `<button class="btn btn-secondary btn-sm" onclick="openTrainingFilePreview(${Number(item.id)}, '${escapeQuotes(item.title)}', '${escapeQuotes(item.file_type)}', '${escapeQuotes(item.view_url)}', '${escapeQuotes(item.download_url)}')"><i class="fa-regular fa-eye"></i> View</button>`
           : '');
       const copyBtn = hasText
-        ? `<button class="btn btn-primary btn-sm" onclick="handleScriptCopy(${Number(item.id)})"><i class="fa-regular fa-copy"></i> Copy</button>`
+        ? `<button class="btn btn-primary btn-sm" onclick="handleScriptCopy(${Number(item.id)}, this)"><i class="fa-regular fa-copy"></i> Copy Script</button>`
         : '';
       const dlBtn = item.has_file
-        ? `<a href="${escapeHtml(item.download_url)}" class="btn btn-outline btn-sm"><i class="fa-solid fa-download"></i> Download</a>`
+        ? `<a href="${escapeHtml(item.download_url)}" download="${escapeHtml(item.original_filename || item.title)}" class="btn btn-outline btn-sm"><i class="fa-solid fa-download"></i> Download</a>`
         : '';
 
       const card = document.createElement('div');
-      card.className = 'script-card-item';
+      card.className = 'keep-script-card';
       card.innerHTML = `
-        <div style="flex:1;">
+        <div>
           <div class="script-card-title">${escapeHtml(item.title)}</div>
-          ${item.description ? `<div class="text-sm text-gray">${escapeHtml(item.description)}</div>` : ''}
+          ${item.description ? `<div class="text-sm text-gray mt-2">${escapeHtml(item.description)}</div>` : ''}
           <div class="admin-mat-badges"><span class="admin-mat-badge">${escapeHtml(item.language)}</span></div>
+          ${bulletsHtml}
         </div>
         <div class="script-actions-row">
-          ${viewBtn}
           ${copyBtn}
+          ${viewBtn}
           ${dlBtn}
         </div>
       `;
       container.appendChild(card);
     });
   } catch (err) {
-    container.innerHTML = `<div class="empty-state-box"><p class="text-danger">Failed to load sales scripts. Please try again.</p></div>`;
+    container.innerHTML = `<div class="empty-state-box"><p>Failed to load sales scripts. Please try again.</p></div>`;
   }
 }
 
@@ -1426,7 +1607,7 @@ let activeScriptFullText = "";
 function handleScriptView(scriptId) {
   const scriptObj = currentLoadedScriptsMap[scriptId];
   if (!scriptObj) {
-    alert("Script not found. Please refresh.");
+    showToast('Script not found. Please refresh.', 'error');
     return;
   }
   activeScriptFullText = `${scriptObj.title}\n\n${scriptObj.content}`;
@@ -1435,24 +1616,29 @@ function handleScriptView(scriptId) {
   openModal('modal-script-fullview');
 }
 
-async function handleScriptCopy(scriptId) {
+async function handleScriptCopy(scriptId, btnEl) {
   const scriptObj = currentLoadedScriptsMap[scriptId];
   if (!scriptObj) {
-    alert("Script not found. Please refresh.");
+    showToast('Script not found. Please refresh.', 'error');
     return;
   }
   const fullTextToCopy = `${scriptObj.title}\n\n${scriptObj.content}`;
-  await executeClipboardCopy(fullTextToCopy);
+  const ok = await executeClipboardCopy(fullTextToCopy, 'Sales script copied!');
+  if (ok && btnEl) {
+    const oldHtml = btnEl.innerHTML;
+    btnEl.innerHTML = '<i class="fa-solid fa-check"></i> Copied!';
+    setTimeout(() => { btnEl.innerHTML = oldHtml; }, 1600);
+  }
 }
 
 function copyFullScriptText() {
-  executeClipboardCopy(activeScriptFullText);
+  executeClipboardCopy(activeScriptFullText, 'Sales script copied!');
 }
 
-async function executeClipboardCopy(text) {
+async function executeClipboardCopy(text, successMsg = 'Copied successfully!') {
   if (!text) {
-    alert("No content available to copy.");
-    return;
+    showToast('No content available to copy.', 'error');
+    return false;
   }
   let success = false;
   if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -1481,15 +1667,16 @@ async function executeClipboardCopy(text) {
   }
 
   if (success) {
-    alert("Copied successfully!");
+    showToast(successMsg, 'success');
   } else {
-    alert("Failed to copy to clipboard. Please copy manually.");
+    showToast('Failed to copy to clipboard. Please copy manually.', 'error');
   }
+  return success;
 }
 
 async function loadFaqPage(lang) {
   const container = document.getElementById('faq-list-container');
-  container.innerHTML = '<div class="text-center p-3 text-gray"><i class="fa-solid fa-spinner fa-spin"></i> Loading FAQs...</div>';
+  container.innerHTML = '<div class="loading-box"><i class="fa-solid fa-spinner fa-spin"></i> Loading FAQs...</div>';
 
   try {
     const res = await fetch(`/api/training/resources?category=faq&language=${encodeURIComponent(lang)}`, { cache: 'no-store' });
@@ -1530,13 +1717,36 @@ async function loadFaqPage(lang) {
       container.appendChild(card);
     });
   } catch (err) {
-    container.innerHTML = `<div class="empty-state-box"><p class="text-danger">Failed to load FAQs. Please try again.</p></div>`;
+    container.innerHTML = `<div class="empty-state-box"><p>Failed to load FAQs. Please try again.</p></div>`;
   }
+}
+
+function openPosterPreviewById(id) {
+  const item = currentLoadedPostersMap[id];
+  if (!item) return;
+  const imgSrc = item.has_file ? item.view_url : item.file_url;
+  const dlHref = item.has_file ? item.download_url : item.file_url;
+  document.getElementById('file-preview-title').innerText = item.title || 'Poster Preview';
+  document.getElementById('file-preview-body').innerHTML = `
+    <div style="text-align:center;">
+      <img src="${escapeHtml(imgSrc)}" class="file-preview-img" alt="${escapeHtml(item.title)}">
+      ${item.description ? `<p class="text-sm text-gray mt-2">${escapeHtml(item.description)}</p>` : ''}
+    </div>
+  `;
+  const dlEl = document.getElementById('file-preview-download');
+  if (dlHref) {
+    dlEl.href = dlHref;
+    dlEl.setAttribute('download', item.original_filename || item.title || 'poster');
+    dlEl.classList.remove('hidden');
+  } else {
+    dlEl.classList.add('hidden');
+  }
+  openModal('modal-file-preview');
 }
 
 async function loadPostersPage(lang) {
   const container = document.getElementById('posters-grid-container');
-  container.innerHTML = '<div class="text-center p-3 text-gray" style="grid-column: span 2;"><i class="fa-solid fa-spinner fa-spin"></i> Loading posters...</div>';
+  container.innerHTML = '<div class="loading-box"><i class="fa-solid fa-spinner fa-spin"></i> Loading posters...</div>';
 
   try {
     const res = await fetch(`/api/training/resources?category=poster&language=${encodeURIComponent(lang)}`, { cache: 'no-store' });
@@ -1544,35 +1754,115 @@ async function loadPostersPage(lang) {
     container.innerHTML = '';
 
     if (!data.items || data.items.length === 0) {
-      container.innerHTML = `<div class="empty-state-box" style="grid-column: span 2;"><i class="fa-solid fa-images"></i><p>No published posters available for ${escapeHtml(formatLangBadge(lang))}.</p></div>`;
+      container.innerHTML = `<div class="empty-state-box"><i class="fa-solid fa-images"></i><p>No published posters available for ${escapeHtml(formatLangBadge(lang))}.</p></div>`;
       return;
     }
 
+    Object.keys(currentLoadedPostersMap).forEach(k => delete currentLoadedPostersMap[k]);
     data.items.forEach((item) => {
+      currentLoadedPostersMap[item.id] = item;
       const imgSrc = item.has_file ? item.view_url : item.file_url;
       const dlHref = item.has_file ? item.download_url : item.file_url;
       const card = document.createElement('div');
       card.className = 'poster-preview-card';
       card.innerHTML = `
-        <img src="${escapeHtml(imgSrc)}" class="poster-img-element" alt="${escapeHtml(item.title)}">
-        <div style="padding: 8px;">
-          <strong class="text-sm" style="display:block; margin-bottom: 4px;">${escapeHtml(item.title)}</strong>
-          ${item.description ? `<div class="text-sm text-gray" style="margin-bottom:6px;">${escapeHtml(item.description)}</div>` : ''}
-          <a href="${escapeHtml(dlHref)}" class="btn btn-outline btn-sm w-100">
-            <i class="fa-solid fa-download"></i> Download
-          </a>
+        <div class="poster-img-wrap" onclick="openPosterPreviewById(${Number(item.id)})">
+          <img src="${escapeHtml(imgSrc)}" class="poster-img-element" alt="${escapeHtml(item.title)}">
+        </div>
+        <div class="poster-card-footer">
+          <strong class="text-sm" style="display:block;">${escapeHtml(item.title)}</strong>
+          ${item.description ? `<div class="text-sm text-gray">${escapeHtml(item.description)}</div>` : ''}
+          <div class="poster-actions-row">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="openPosterPreviewById(${Number(item.id)})">
+              <i class="fa-regular fa-eye"></i> View
+            </button>
+            <a href="${escapeHtml(dlHref)}" download="${escapeHtml(item.original_filename || item.title)}" class="btn btn-primary btn-sm">
+              <i class="fa-solid fa-download"></i> Download
+            </a>
+          </div>
         </div>
       `;
       container.appendChild(card);
     });
   } catch (err) {
-    container.innerHTML = `<div class="empty-state-box" style="grid-column: span 2;"><p class="text-danger">Failed to load posters. Please try again.</p></div>`;
+    container.innerHTML = `<div class="empty-state-box"><p>Failed to load posters. Please try again.</p></div>`;
   }
+}
+
+async function openTrainingFilePreview(materialId, title, fileType, viewUrl, downloadUrl) {
+  if (fileType === 'pdf' && viewUrl) {
+    window.open(viewUrl, '_blank');
+    return;
+  }
+  if (fileType === 'image' && viewUrl) {
+    document.getElementById('file-preview-title').innerText = title || 'Image Preview';
+    document.getElementById('file-preview-body').innerHTML = `<div style="text-align:center;"><img src="${escapeHtml(viewUrl)}" class="file-preview-img" alt="${escapeHtml(title)}"></div>`;
+    const dlEl = document.getElementById('file-preview-download');
+    if (downloadUrl) {
+      dlEl.href = downloadUrl;
+      dlEl.classList.remove('hidden');
+    } else {
+      dlEl.classList.add('hidden');
+    }
+    openModal('modal-file-preview');
+    return;
+  }
+
+  document.getElementById('file-preview-title').innerText = title || 'Document Preview';
+  const bodyEl = document.getElementById('file-preview-body');
+  const dlEl = document.getElementById('file-preview-download');
+  bodyEl.innerHTML = '<div class="loading-box"><i class="fa-solid fa-spinner fa-spin"></i> Loading document preview...</div>';
+  if (downloadUrl) {
+    dlEl.href = downloadUrl;
+    dlEl.classList.remove('hidden');
+  } else {
+    dlEl.classList.add('hidden');
+  }
+  openModal('modal-file-preview');
+
+  try {
+    const res = await fetch(`/api/training/preview/${materialId}`, { cache: 'no-store' });
+    const data = await res.json();
+    if (!data.success) {
+      bodyEl.innerHTML = `<div class="team-msg team-msg-warn">${escapeHtml(data.message || 'Preview unavailable.')}</div>`;
+      return;
+    }
+
+    if (data.kind === 'table' && Array.isArray(data.sheets)) {
+      if (!data.sheets.length) {
+        bodyEl.innerHTML = '<p class="text-sm text-gray">This spreadsheet is empty.</p>';
+        return;
+      }
+      bodyEl.innerHTML = data.sheets.map(sheet => {
+        const rowsHtml = (sheet.rows || []).map(r => `<tr>${r.map(cell => `<td>${escapeHtml(cell)}</td>`).join('')}</tr>`).join('');
+        return `<div class="file-preview-sheet-title">${escapeHtml(sheet.name)}</div><div class="file-preview-table-wrap"><table class="file-preview-table">${rowsHtml || '<tr><td>Empty sheet</td></tr>'}</table></div>`;
+      }).join('');
+    } else if (data.kind === 'text') {
+      bodyEl.innerHTML = `<div class="script-modal-view">${escapeHtml(data.text || '')}</div>`;
+    } else {
+      bodyEl.innerHTML = `
+        <div class="empty-state-box">
+          <i class="fa-solid fa-file"></i>
+          <p><strong>${escapeHtml(data.filename || title)}</strong></p>
+          <p class="text-sm text-gray mt-2">File Type: ${escapeHtml((data.file_ext || '').toUpperCase() || 'FILE')} &middot; Size: ${formatFileSize(data.size_bytes)}</p>
+          <p class="text-sm text-gray mt-2">Click <strong>Download</strong> below to open this file on your device.</p>
+        </div>
+      `;
+    }
+  } catch (err) {
+    bodyEl.innerHTML = '<div class="team-msg team-msg-warn">Unable to load preview. Please use Download below.</div>';
+  }
+}
+
+function openSmartBookPreviewById(id) {
+  const item = currentLoadedSmartBooksMap[id];
+  if (!item || !item.has_file) return;
+  openTrainingFilePreview(item.id, item.title, item.file_type, item.view_url, item.download_url);
 }
 
 async function loadSmartBooksPage(lang) {
   const container = document.getElementById('smartbook-list-container');
-  container.innerHTML = '<div class="text-center p-3 text-gray"><i class="fa-solid fa-spinner fa-spin"></i> Loading materials...</div>';
+  container.innerHTML = '<div class="loading-box"><i class="fa-solid fa-spinner fa-spin"></i> Loading materials...</div>';
 
   try {
     const res = await fetch(`/api/training/resources?category=smart_book&language=${encodeURIComponent(lang)}`, { cache: 'no-store' });
@@ -1584,36 +1874,42 @@ async function loadSmartBooksPage(lang) {
       return;
     }
 
+    Object.keys(currentLoadedSmartBooksMap).forEach(k => delete currentLoadedSmartBooksMap[k]);
     data.items.forEach((item) => {
+      currentLoadedSmartBooksMap[item.id] = item;
       const iconCls = reportFileIconClass(item.file_type);
-      const canInline = item.has_file && (item.file_type === 'pdf' || item.file_type === 'image');
-      const viewBtn = canInline
-        ? `<a href="${escapeHtml(item.view_url)}" target="_blank" class="btn btn-secondary btn-sm"><i class="fa-regular fa-eye"></i> View</a>`
+      const extChip = item.file_ext ? item.file_ext.toUpperCase() : 'FILE';
+      const viewBtn = item.has_file
+        ? `<button type="button" class="btn btn-secondary btn-sm" onclick="openSmartBookPreviewById(${Number(item.id)})"><i class="fa-regular fa-eye"></i> View</button>`
         : '';
       const dlBtn = item.has_file
-        ? `<a href="${escapeHtml(item.download_url)}" class="btn btn-outline btn-sm"><i class="fa-solid fa-download"></i> Download${item.file_ext ? ' ' + escapeHtml(item.file_ext.toUpperCase()) : ''}</a>`
+        ? `<a href="${escapeHtml(item.download_url)}" download="${escapeHtml(item.original_filename || item.title)}" class="btn btn-primary btn-sm"><i class="fa-solid fa-download"></i> Download</a>`
         : '';
 
       const card = document.createElement('div');
-      card.className = 'script-card-item';
+      card.className = 'drive-file-card';
       card.innerHTML = `
-        <div class="file-name-meta" style="flex: 1;">
+        <div class="drive-file-preview-band" onclick="openSmartBookPreviewById(${Number(item.id)})">
           <i class="${iconCls}"></i>
-          <div>
-            <strong>${escapeHtml(item.title)}</strong>
-            <div class="text-sm text-gray">${escapeHtml(item.description || item.original_filename || 'Sample Smart Book material')}</div>
-            <div class="admin-mat-badges"><span class="admin-mat-badge">${escapeHtml(item.language)}</span></div>
-          </div>
+          <span class="drive-ext-chip">${escapeHtml(extChip)}</span>
         </div>
-        <div class="script-actions-row">
-          ${viewBtn}
-          ${dlBtn}
+        <div class="drive-file-body">
+          <div class="script-card-title">${escapeHtml(item.title)}</div>
+          <div class="text-sm text-gray">${escapeHtml(item.description || item.original_filename || 'Sample Smart Book material')}</div>
+          <div class="admin-mat-badges">
+            <span class="admin-mat-badge">${escapeHtml(item.language)}</span>
+            ${item.size_bytes ? `<span class="admin-mat-badge">${formatFileSize(item.size_bytes)}</span>` : ''}
+          </div>
+          <div class="drive-file-actions">
+            ${viewBtn}
+            ${dlBtn}
+          </div>
         </div>
       `;
       container.appendChild(card);
     });
   } catch (err) {
-    container.innerHTML = `<div class="empty-state-box"><p class="text-danger">Failed to load Smart Books. Please try again.</p></div>`;
+    container.innerHTML = `<div class="empty-state-box"><p>Failed to load Smart Books. Please try again.</p></div>`;
   }
 }
 
@@ -1673,7 +1969,7 @@ function openAdminMaterialModal(category = 'video') {
   document.getElementById('adm-mat-lang').value = 'English';
   document.getElementById('adm-mat-active').checked = true;
   document.getElementById('adm-mat-modal-title').innerText = `Add ${MATERIAL_CATEGORY_META[category]?.label || 'Training Material'}`;
-  document.getElementById('adm-mat-submit-btn').innerText = 'Save Material';
+  document.getElementById('adm-mat-submit-btn').innerText = 'Publish Material';
   document.getElementById('adm-mat-error').innerHTML = '';
   const curFileEl = document.getElementById('adm-mat-current-file');
   curFileEl.innerText = '';
@@ -1687,7 +1983,7 @@ function openEditMaterialModal(materialId) {
   if (!isDesignatedAdmin()) return;
   const item = adminMaterialsMap[materialId];
   if (!item) {
-    alert('Material not found. Please refresh.');
+    showToast('Material not found. Please refresh.', 'error');
     return;
   }
   document.getElementById('admin-material-form').reset();
@@ -1845,6 +2141,7 @@ async function submitAdminMaterial(e) {
       closeModal('modal-admin-upload');
       document.getElementById('admin-material-form').reset();
       showAdminMaterialStatusBanner(data.message || 'Training material saved successfully.', true);
+      showToast(data.message || 'Training material saved!', 'success');
       await loadAdminMaterials();
       updateTrainingHubCounts();
     } else {
@@ -1866,6 +2163,7 @@ async function toggleMaterialPublish(materialId) {
     const data = await res.json();
     if (data.success) {
       showAdminMaterialStatusBanner(data.message || 'Publish status updated.', true);
+      showToast(data.message || 'Publish status updated.', 'success');
       await loadAdminMaterials();
       updateTrainingHubCounts();
     } else {
@@ -1887,6 +2185,7 @@ async function deleteAdminMaterial(materialId) {
     const data = await res.json();
     if (data.success) {
       showAdminMaterialStatusBanner(data.message || 'Material deleted.', true);
+      showToast('Training material deleted.', 'success');
       await loadAdminMaterials();
       updateTrainingHubCounts();
     } else {
@@ -1936,18 +2235,19 @@ async function loadReports() {
   if (dateVal) url += `?date=${encodeURIComponent(dateVal)}`;
 
   const container = document.getElementById('reports-container');
+  container.innerHTML = '<div class="loading-box"><i class="fa-solid fa-spinner fa-spin"></i> Loading reports...</div>';
   let data;
   try {
     const res = await fetch(url, { cache: 'no-store' });
     data = await res.json();
   } catch (err) {
-    container.innerHTML = `<div class="text-center text-gray p-3">Unable to load reports. Please try again.</div>`;
+    container.innerHTML = `<div class="empty-state-box"><p>Unable to load reports. Please try again.</p></div>`;
     return;
   }
   container.innerHTML = '';
 
   if (!data.reports || data.reports.length === 0) {
-    container.innerHTML = `<div class="text-center text-gray p-3">No reports are available yet.</div>`;
+    container.innerHTML = `<div class="empty-state-box"><i class="fa-solid fa-folder-open"></i><p>No reports are available yet.</p></div>`;
     return;
   }
 
@@ -1966,7 +2266,7 @@ async function loadReports() {
           <span class="report-file-label">${escapeHtml(f.name)}${folderLine}</span>
         </div>
         <div class="file-action-buttons">
-          ${(f.type === 'pdf' || f.type === 'image') ? `<button class="btn btn-secondary btn-sm" title="View" onclick="viewReportFile(${Number(f.id)})"><i class="fa-regular fa-eye"></i></button>` : ''}
+          ${(f.type === 'pdf' || f.type === 'image') ? `<button class="btn btn-secondary btn-sm" title="View" onclick="viewReportFile(${Number(f.id)})"><i class="fa-regular fa-eye"></i> View</button>` : ''}
           <button class="btn btn-outline btn-sm" onclick="downloadReportFile(${Number(f.id)})"><i class="fa-solid fa-download"></i> Download</button>
           <button class="btn btn-secondary btn-sm" onclick="shareReportFile(${Number(f.id)})"><i class="fa-solid fa-share"></i> Share</button>
         </div>
@@ -1991,7 +2291,7 @@ async function shareReportFile(fileId) {
     const res = await fetch(`/api/reports/share/${fileId}`, { method: 'POST' });
     const data = await res.json();
     if (!data.success) {
-      alert(data.message || 'Unable to create a share link.');
+      showToast(data.message || 'Unable to create a share link.', 'error');
       return;
     }
     if (navigator.share) {
@@ -2006,9 +2306,9 @@ async function shareReportFile(fileId) {
         if (err && err.name === 'AbortError') return;
       }
     }
-    await executeClipboardCopy(data.url);
+    await executeClipboardCopy(data.url, 'Share link copied!');
   } catch (err) {
-    alert('Unable to share this file right now.');
+    showToast('Unable to share this file right now.', 'error');
   }
 }
 
@@ -2027,9 +2327,9 @@ async function requestPasswordResetOTP() {
   const data = await res.json();
   if (data.success) {
     document.getElementById('pwd-otp-group').classList.remove('hidden');
-    alert(data.message);
+    showToast(data.message, 'success');
   } else {
-    alert(data.message);
+    showToast(data.message, 'error');
   }
 }
 
@@ -2044,10 +2344,10 @@ async function submitPasswordReset() {
   });
   const data = await res.json();
   if (data.success) {
-    alert(data.message);
+    showToast(data.message, 'success');
     closeModal('modal-change-password');
   } else {
-    alert(data.message);
+    showToast(data.message, 'error');
   }
 }
 
@@ -2157,7 +2457,7 @@ async function loadAdminTeam() {
         <td>${kw(m.keyword_3)}</td>
         <td class="td-upload">
           <button class="team-upload-btn" title="Upload files / folders for ${escapeHtml(m.name)}" onclick="openTeamUploadModal(${idx})">
-            <svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 18H6.5a4.5 4.5 0 0 1-.9-8.9A6 6 0 0 1 17.4 8 4.5 4.5 0 0 1 17.5 18H17"/><path d="M12 20v-9"/><path d="M8.5 14.5 12 11l3.5 3.5"/></svg>
+            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 18H6.5a4.5 4.5 0 0 1-.9-8.9A6 6 0 0 1 17.4 8 4.5 4.5 0 0 1 17.5 18H17"/><path d="M12 20v-9"/><path d="M8.5 14.5 12 11l3.5 3.5"/></svg>
           </button>
           <span class="team-status-pill ${m.uploaded ? 'pill-yes' : 'pill-no'}" title="${m.file_count} file(s) uploaded">${m.uploaded ? 'Yes' : 'No'}</span>
         </td>
@@ -2187,7 +2487,7 @@ function openTeamUploadModal(idx) {
 
 function closeTeamUploadModal() {
   if (teamUploadBusy) {
-    alert('Upload in progress. Please wait until it finishes.');
+    showToast('Upload in progress. Please wait until it finishes.', 'error');
     return;
   }
   closeModal('modal-team-upload');
@@ -2274,7 +2574,7 @@ function clearTeamPendingFiles() {
 async function startTeamUpload() {
   if (teamUploadBusy || !activeTeamTarget || !isDesignatedAdmin()) return;
   if (teamPendingFiles.length === 0) {
-    alert('Please select files or a folder first.');
+    showToast('Please select files or a folder first.', 'error');
     return;
   }
 

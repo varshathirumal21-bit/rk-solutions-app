@@ -442,7 +442,7 @@ def backfill_customer_reports():
 BREVO_API_KEY = os.environ.get("BREVO_API_KEY")
 BREVO_SENDER_EMAIL = os.environ.get("BREVO_SENDER_EMAIL", "varsha.thirumal21@gmail.com")
 BREVO_SENDER_NAME = os.environ.get("BREVO_SENDER_NAME", "RK Solutions")
-ADMIN_DESIGNATED_EMAIL = "varsha.thirumal21@gmail.com"
+ADMIN_DESIGNATED_EMAIL = "v18728763@gmail.com"
 MAX_DAILY_FREE_EMAILS = 300
 
 def hash_otp(otp_code: str) -> str:

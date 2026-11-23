@@ -3,48 +3,40 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>RK Solutions</title>
+  <title>RK Solutions — Learning Platform</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
 
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
   <!-- ======================== SCREEN 1: LOGIN ======================== -->
   <section id="screen-login" class="screen-login-wrapper active">
     <div class="mockup-frame-outer">
       <div class="mockup-card-inner">
-        <!-- Brand Logo Row -->
         <div class="brand-header">
-          <svg class="rk-logo-vector" viewBox="0 0 100 85" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M 50 4 L 92 80 L 73 80 L 50 36 L 27 80 L 8 80 Z" fill="#2563eb" />
-            <path d="M 50 24 L 67 58 L 33 58 Z" fill="#ef4444" />
-          </svg>
+          <div class="yt-brand-badge"><i class="fa-solid fa-play"></i></div>
           <span class="brand-name-text">RK Solutions</span>
         </div>
 
-        <!-- Welcome Text -->
         <div class="welcome-section">
-          <h1 class="welcome-title">Welcome!</h1>
-          <p class="welcome-desc">Enter your email</p>
+          <h1 class="welcome-title">Welcome back!</h1>
+          <p class="welcome-desc">Sign in with your email to access training &amp; workspace</p>
         </div>
 
-        <!-- Email Input Box (Guaranteed Empty, No Autofill) -->
         <div class="input-phone-container">
           <div class="phone-box-wrapper">
-            <svg class="phone-receiver-icon" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
-              <polyline points="22,6 12,13 2,6"/>
-            </svg>
+            <i class="fa-regular fa-envelope phone-receiver-fa"></i>
             <input type="email" id="login-email" placeholder="Enter your email" autocomplete="new-off" autocorrect="off" autocapitalize="off" spellcheck="false" value="">
           </div>
         </div>
 
-        <!-- Send OTP Button with 60-second Cooldown -->
         <button id="btn-send-otp" class="btn-send-otp" onclick="sendLoginEmailOTP()">Send OTP</button>
 
-        <!-- Enter 6-Digit OTP Block (Strict Horizontal Alignment) -->
         <div class="otp-entry-section">
-          <label class="otp-entry-label">Enter OTP</label>
+          <label class="otp-entry-label">Enter 6-Digit OTP</label>
           <div class="custom-otp-wrapper otp-6-grid" onclick="focusOtpCollector()">
             <input type="tel" id="otp-hidden-collector" maxlength="6" autocomplete="new-off" autocorrect="off" autocapitalize="off" spellcheck="false" value="">
             <div class="otp-box-view" id="otp-box-0"></div>
@@ -57,7 +49,6 @@
           <span id="otp-timer-label" class="otp-timer-text hidden">Resend OTP in 60s</span>
         </div>
 
-        <!-- Login Button (Enables when 6 digits are entered) -->
         <button id="btn-verify-otp" class="btn-login-gold disabled-btn" onclick="verifyLoginEmailOTP()" disabled>Login</button>
       </div>
     </div>
@@ -68,7 +59,10 @@
     <div id="sidebar-backdrop" class="sidebar-backdrop hidden" onclick="closeSidebar()"></div>
     <aside id="app-sidebar" class="app-sidebar" aria-label="Sidebar Navigation">
       <div class="sidebar-header">
-        <span class="sidebar-brand">RK Solutions</span>
+        <div class="sidebar-brand-row">
+          <div class="yt-brand-badge sm"><i class="fa-solid fa-play"></i></div>
+          <span class="sidebar-brand">RK Solutions</span>
+        </div>
         <button id="sidebar-close-btn" class="sidebar-close-btn" onclick="closeSidebar()" title="Close Sidebar">&times;</button>
       </div>
 
@@ -84,26 +78,28 @@
 
       <nav class="sidebar-nav">
         <button class="sidebar-nav-item active" data-tab="dashboard" onclick="sidebarNavigate('dashboard')"><i class="fa-solid fa-house"></i><span>Dashboard</span></button>
-        <button class="sidebar-nav-item" data-tab="customers" onclick="sidebarNavigate('customers')"><i class="fa-solid fa-users"></i><span>Customers</span></button>
         <button class="sidebar-nav-item" data-tab="training" onclick="sidebarNavigate('training')"><i class="fa-solid fa-graduation-cap"></i><span>Training</span></button>
-        <button class="sidebar-nav-item" data-tab="reports" onclick="sidebarNavigate('reports')"><i class="fa-solid fa-file-invoice"></i><span>Reports</span></button>
+        <button class="sidebar-nav-item" data-tab="customers" onclick="sidebarNavigate('customers')"><i class="fa-solid fa-users"></i><span>Customers</span></button>
+        <button class="sidebar-nav-item" data-tab="reports" onclick="sidebarNavigate('reports')"><i class="fa-solid fa-folder-open"></i><span>Reports</span></button>
         <button class="sidebar-nav-item" data-tab="wallet" onclick="sidebarNavigate('wallet')"><i class="fa-solid fa-clock-rotate-left"></i><span>Wallet History</span></button>
         <button class="sidebar-nav-item" data-tab="profile" onclick="sidebarNavigate('profile')"><i class="fa-solid fa-user"></i><span>Profile</span></button>
         <button id="sidebar-admin-btn" class="sidebar-nav-item hidden" data-tab="admin-team" onclick="sidebarNavigate('admin-team')"><i class="fa-solid fa-user-shield"></i><span>Admin Dashboard</span></button>
-        <button id="sidebar-admin-materials-btn" class="sidebar-nav-item hidden" data-tab="admin-materials" onclick="sidebarNavigate('admin-materials')"><i class="fa-solid fa-folder-plus"></i><span>Manage Training</span></button>
+        <button id="sidebar-admin-materials-btn" class="sidebar-nav-item hidden" data-tab="admin-materials" onclick="sidebarNavigate('admin-materials')"><i class="fa-solid fa-photo-film"></i><span>Manage Training</span></button>
         <button id="sidebar-admin-wallets-btn" class="sidebar-nav-item hidden" data-tab="admin-wallets" onclick="sidebarNavigate('admin-wallets')"><i class="fa-solid fa-money-check-dollar"></i><span>Employee Wallets</span></button>
       </nav>
     </aside>
 
     <header class="app-header">
       <div class="header-left">
-        <button id="sidebar-toggle-btn" class="header-menu-btn" onclick="toggleSidebar()" title="Open Sidebar">
+        <button id="sidebar-toggle-btn" class="header-menu-btn" onclick="toggleSidebar()" title="Open Menu">
           <i class="fa-solid fa-bars"></i>
         </button>
         <button id="header-back-btn" class="header-back-btn" onclick="navigatePreviousScreen()" title="Go Back">
           <i class="fa-solid fa-arrow-left"></i>
         </button>
-        <h4 id="header-title">Dashboard</h4>
+        <div class="header-title-wrap">
+          <h4 id="header-title">Dashboard</h4>
+        </div>
       </div>
       <div class="header-right">
         <button id="header-admin-btn" class="header-admin-btn hidden" onclick="openAdminTeamPage()" title="Admin Dashboard">
@@ -113,45 +109,61 @@
     </header>
 
     <main class="app-body">
-      <!-- SCREEN 2: DASHBOARD -->
+      <!-- SCREEN 2: DASHBOARD (YouTube Home + Google Classroom Inspired) -->
       <section id="screen-dashboard" class="sub-screen active">
-        <div class="partner-welcome">
-          <div>
+        <!-- Classroom-style Welcome Banner -->
+        <div class="welcome-banner-card">
+          <div class="partner-welcome-left">
+            <span class="welcome-kicker">Learning &amp; Partner Workspace</span>
             <h3>Hi, Partner!</h3>
-            <span class="text-sm text-gray" id="user-subtext"></span>
+            <span class="partner-id-badge" id="user-subtext"></span>
           </div>
-          <div class="date-filter-box">
-            <input type="date" id="dash-date-filter" onchange="onDashboardDateChange()">
+          <div class="welcome-banner-right">
+            <div class="date-filter-box">
+              <label for="dash-date-filter">Filter Date</label>
+              <input type="date" id="dash-date-filter" onchange="onDashboardDateChange()">
+            </div>
+            <button class="btn btn-primary" onclick="openAddCustomerModal()">
+              <i class="fa-solid fa-user-plus"></i> + Add New Customer
+            </button>
           </div>
         </div>
 
-        <div class="metrics-grid">
+        <!-- Quick Access & Performance Metrics -->
+        <div class="section-header-row">
+          <h5 class="section-heading">Overview &amp; Quick Access</h5>
+          <div class="quick-links-bar">
+            <button class="btn btn-secondary btn-sm" onclick="switchTab('training')"><i class="fa-solid fa-graduation-cap"></i> Training</button>
+            <button class="btn btn-secondary btn-sm" onclick="switchTab('customers')"><i class="fa-solid fa-users"></i> Customers</button>
+            <button class="btn btn-secondary btn-sm" onclick="switchTab('reports')"><i class="fa-solid fa-folder-open"></i> Reports</button>
+            <button class="btn btn-secondary btn-sm" onclick="switchTab('wallet')"><i class="fa-solid fa-wallet"></i> Wallet</button>
+          </div>
+        </div>
+
+        <div class="metrics-grid-4">
           <div class="metric-card">
-            <div class="metric-icon green-icon"><i class="fa-solid fa-users"></i></div>
+            <div class="metric-icon red-soft-icon"><i class="fa-solid fa-users"></i></div>
             <div class="metric-content">
               <span class="label">Membership</span>
               <strong id="metric-membership">0</strong>
             </div>
           </div>
           <div class="metric-card">
-            <div class="metric-icon orange-icon"><i class="fa-solid fa-book-open"></i></div>
+            <div class="metric-icon neutral-icon"><i class="fa-solid fa-book-open"></i></div>
             <div class="metric-content">
               <span class="label">Smart Book</span>
               <strong id="metric-smartbook">0</strong>
             </div>
           </div>
-        </div>
-
-        <div class="metrics-grid mt-2">
           <div class="metric-card earning-card">
-            <div class="metric-icon blue-icon"><i class="fa-solid fa-indian-rupee-sign"></i></div>
+            <div class="metric-icon neutral-icon"><i class="fa-solid fa-indian-rupee-sign"></i></div>
             <div class="metric-content">
               <span class="label">Paid Earning</span>
               <strong id="metric-earnings">₹0</strong>
             </div>
           </div>
           <div class="metric-card earning-card">
-            <div class="metric-icon purple-icon"><i class="fa-solid fa-user-group"></i></div>
+            <div class="metric-icon red-soft-icon"><i class="fa-solid fa-user-group"></i></div>
             <div class="metric-content">
               <span class="label">Total Customers</span>
               <strong id="metric-total-customers">0</strong>
@@ -167,45 +179,87 @@
           <button class="pill" id="dash-pill-Joined" onclick="goToCustomersWithStatus('Joined')">Joined (0)</button>
         </div>
 
-        <div class="dashboard-actions">
-          <button class="btn btn-add-customer" onclick="openAddCustomerModal()">
-            <i class="fa-solid fa-user-plus"></i> + Add New Customer
-          </button>
+        <!-- Learning Categories Grid (Google Classroom Cards) -->
+        <div class="section-header-row mt-4">
+          <h5 class="section-heading">Learning Categories</h5>
+          <button class="btn-link-red" onclick="switchTab('training')">View All <i class="fa-solid fa-chevron-right"></i></button>
         </div>
-
-        <div class="referral-card">
-          <div class="referral-title"><i class="fa-solid fa-share-nodes"></i> Refer a Partner</div>
-          <p class="text-sm">Share your unique link. When someone installs or registers, reward is automatically credited.</p>
-          <div class="referral-link-row">
-            <input type="text" id="referral-url" readonly value="">
-            <button class="btn btn-copy" onclick="copyReferralLink()"><i class="fa-regular fa-copy"></i> Copy</button>
-          </div>
-          <div class="social-share-buttons">
-            <button class="btn btn-whatsapp" onclick="shareSocial('whatsapp')"><i class="fa-brands fa-whatsapp"></i> WhatsApp</button>
-            <button class="btn btn-instagram" onclick="shareSocial('instagram')"><i class="fa-brands fa-instagram"></i> Instagram</button>
-            <button class="btn btn-facebook" onclick="shareSocial('facebook')"><i class="fa-brands fa-facebook"></i> Facebook</button>
-          </div>
-        </div>
-
-        <div class="banner-container">
-          <div class="banner-slide" id="banner-active">
-            <div class="banner-text">
-              <h4 id="banner-title">Exclusive Smart Book Training</h4>
-              <p id="banner-subtitle">Live interactive sessions in 5 regional languages.</p>
+        <div class="dash-categories-grid">
+          <div class="dash-category-card" onclick="openCategoryFromDashboard('video')">
+            <div class="dash-cat-icon"><i class="fa-brands fa-youtube"></i></div>
+            <div class="dash-cat-body">
+              <strong>Training Videos</strong>
+              <span id="dash-cat-count-video">0 videos</span>
             </div>
           </div>
-          <div class="banner-dots" id="banner-dots">
-            <span class="dot active" onclick="setBanner(0)"></span>
-            <span class="dot" onclick="setBanner(1)"></span>
-            <span class="dot" onclick="setBanner(2)"></span>
+          <div class="dash-category-card" onclick="openCategoryFromDashboard('sales_script')">
+            <div class="dash-cat-icon"><i class="fa-solid fa-note-sticky"></i></div>
+            <div class="dash-cat-body">
+              <strong>Sales Scripts</strong>
+              <span id="dash-cat-count-sales_script">0 scripts</span>
+            </div>
+          </div>
+          <div class="dash-category-card" onclick="openCategoryFromDashboard('smart_book')">
+            <div class="dash-cat-icon"><i class="fa-solid fa-file-lines"></i></div>
+            <div class="dash-cat-body">
+              <strong>Sample Smart Books</strong>
+              <span id="dash-cat-count-smart_book">0 files</span>
+            </div>
+          </div>
+          <div class="dash-category-card" onclick="openCategoryFromDashboard('poster')">
+            <div class="dash-cat-icon"><i class="fa-solid fa-images"></i></div>
+            <div class="dash-cat-body">
+              <strong>Posters</strong>
+              <span id="dash-cat-count-poster">0 posters</span>
+            </div>
           </div>
         </div>
 
-        <!-- Admin only: add / edit / replace / delete the 3 advertisements (hidden for everyone else) -->
-        <div id="ads-admin-actions" class="ads-admin-actions hidden">
-          <button class="btn btn-outline w-100" onclick="openAdsManager()">
-            <i class="fa-solid fa-rectangle-ad"></i> Manage Advertisements
-          </button>
+        <!-- Recently Uploaded Training Materials -->
+        <div class="section-header-row mt-4">
+          <h5 class="section-heading">Recently Uploaded Materials</h5>
+        </div>
+        <div id="dash-recent-materials" class="dash-recent-grid">
+          <div class="loading-box"><i class="fa-solid fa-spinner fa-spin"></i> Loading latest materials...</div>
+        </div>
+
+        <!-- Bottom Dashboard Row: Referral & Banners -->
+        <div class="dashboard-split-grid mt-4">
+          <div class="referral-card">
+            <div class="referral-title"><i class="fa-solid fa-share-nodes"></i> Refer a Partner</div>
+            <p class="text-sm text-gray">Share your unique link. When someone registers, your reward is credited.</p>
+            <div class="referral-link-row">
+              <input type="text" id="referral-url" readonly value="">
+              <button class="btn btn-primary btn-sm" onclick="copyReferralLink()"><i class="fa-regular fa-copy"></i> Copy</button>
+            </div>
+            <div class="social-share-buttons">
+              <button class="btn btn-secondary btn-sm" onclick="shareSocial('whatsapp')"><i class="fa-brands fa-whatsapp"></i> WhatsApp</button>
+              <button class="btn btn-secondary btn-sm" onclick="shareSocial('instagram')"><i class="fa-brands fa-instagram"></i> Instagram</button>
+              <button class="btn btn-secondary btn-sm" onclick="shareSocial('facebook')"><i class="fa-brands fa-facebook"></i> Facebook</button>
+            </div>
+          </div>
+
+          <div>
+            <div class="banner-container">
+              <div class="banner-slide" id="banner-active">
+                <div class="banner-text">
+                  <h4 id="banner-title">Exclusive Smart Book Training</h4>
+                  <p id="banner-subtitle">Live interactive sessions in 5 regional languages.</p>
+                </div>
+              </div>
+              <div class="banner-dots" id="banner-dots">
+                <span class="dot active" onclick="setBanner(0)"></span>
+                <span class="dot" onclick="setBanner(1)"></span>
+                <span class="dot" onclick="setBanner(2)"></span>
+              </div>
+            </div>
+
+            <div id="ads-admin-actions" class="ads-admin-actions hidden">
+              <button class="btn btn-outline w-100" onclick="openAdsManager()">
+                <i class="fa-solid fa-rectangle-ad"></i> Manage Advertisements
+              </button>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -216,8 +270,8 @@
             <i class="fa-solid fa-magnifying-glass"></i>
             <input type="text" id="cust-search" placeholder="Search by name or phone" oninput="loadCustomerList()">
           </div>
-          <button class="btn btn-icon" onclick="toggleDateFilter()"><i class="fa-solid fa-filter"></i></button>
-          <button class="btn btn-primary btn-sm" onclick="openAddCustomerModal()"><i class="fa-solid fa-plus"></i></button>
+          <button class="btn btn-secondary btn-sm" onclick="toggleDateFilter()" title="Filter by date"><i class="fa-solid fa-filter"></i></button>
+          <button class="btn btn-primary btn-sm" onclick="openAddCustomerModal()" title="Add New Customer"><i class="fa-solid fa-plus"></i> Add</button>
         </div>
 
         <div class="status-pills">
@@ -245,13 +299,13 @@
       <section id="screen-training" class="sub-screen">
         <div class="training-screen-wrapper">
           <div class="training-top-header">
-            <button class="btn-training-back" onclick="switchTab('dashboard')">Back</button>
-            <h4 class="training-header-title">Training & Resources</h4>
+            <button class="btn btn-secondary btn-sm" onclick="switchTab('dashboard')"><i class="fa-solid fa-arrow-left"></i> Back</button>
+            <h4 class="training-header-title">Training &amp; Resources</h4>
           </div>
 
           <div class="training-lang-filter-card">
             <div class="lang-label-row">
-              <i class="fa-solid fa-layer-group lang-icon-purple"></i>
+              <i class="fa-solid fa-globe lang-icon-red"></i>
               <span class="lang-label-text">Select Content Language:</span>
             </div>
             <select id="training-language-select" class="training-lang-select" onchange="onLanguageChanged()">
@@ -266,71 +320,71 @@
 
           <div class="training-items-list">
             <div class="tr-resource-row" onclick="navigateToTrainingSection('video')">
-              <div class="tr-icon-col tr-icon-blue"><i class="fa-solid fa-video"></i></div>
+              <div class="tr-icon-col tr-icon-red"><i class="fa-brands fa-youtube"></i></div>
               <div class="tr-content-col">
-                <h5 class="tr-item-title">Training Video</h5>
+                <h5 class="tr-item-title">Training Videos</h5>
                 <p class="tr-item-desc" id="hub-desc-video">Published tutorial videos</p>
               </div>
-              <div class="tr-action-col"><div class="btn-play-circle-blue"><i class="fa-solid fa-play"></i></div></div>
+              <div class="tr-action-col"><span class="btn btn-primary btn-sm"><i class="fa-solid fa-play"></i> Watch</span></div>
             </div>
 
             <div class="tr-resource-row" onclick="navigateToTrainingSection('sales_script')">
-              <div class="tr-icon-col tr-icon-orange"><i class="fa-solid fa-file-lines"></i></div>
+              <div class="tr-icon-col tr-icon-neutral"><i class="fa-solid fa-note-sticky"></i></div>
               <div class="tr-content-col">
-                <h5 class="tr-item-title">Sales Script</h5>
+                <h5 class="tr-item-title">Sales Scripts</h5>
                 <p class="tr-item-desc" id="hub-desc-sales_script">Published sales scripts &amp; documents</p>
               </div>
-              <div class="tr-action-col"><span class="badge-pill-orange">View</span></div>
+              <div class="tr-action-col"><span class="btn btn-outline btn-sm">View</span></div>
+            </div>
+
+            <div class="tr-resource-row" onclick="navigateToTrainingSection('smart_book')">
+              <div class="tr-icon-col tr-icon-neutral"><i class="fa-solid fa-folder-open"></i></div>
+              <div class="tr-content-col">
+                <h5 class="tr-item-title">Sample Smart Books</h5>
+                <p class="tr-item-desc" id="hub-desc-smart_book">Published handbooks &amp; PDFs</p>
+              </div>
+              <div class="tr-action-col"><span class="btn btn-outline btn-sm">Open</span></div>
+            </div>
+
+            <div class="tr-resource-row" onclick="navigateToTrainingSection('poster')">
+              <div class="tr-icon-col tr-icon-red"><i class="fa-solid fa-images"></i></div>
+              <div class="tr-content-col">
+                <h5 class="tr-item-title">Posters</h5>
+                <p class="tr-item-desc" id="hub-desc-poster">Published marketing posters</p>
+              </div>
+              <div class="tr-action-col"><span class="btn btn-outline btn-sm">Gallery</span></div>
             </div>
 
             <div class="tr-resource-row" onclick="navigateToTrainingSection('faq')">
-              <div class="tr-icon-col tr-icon-purple"><i class="fa-solid fa-circle-question"></i></div>
+              <div class="tr-icon-col tr-icon-neutral"><i class="fa-solid fa-circle-question"></i></div>
               <div class="tr-content-col">
                 <h5 class="tr-item-title">FAQ</h5>
                 <p class="tr-item-desc">Frequently asked questions</p>
               </div>
-              <div class="tr-action-col"><span class="badge-pill-purple">View</span></div>
-            </div>
-
-            <div class="tr-resource-row" onclick="navigateToTrainingSection('poster')">
-              <div class="tr-icon-col tr-icon-red"><i class="fa-solid fa-image"></i></div>
-              <div class="tr-content-col">
-                <h5 class="tr-item-title">Poster</h5>
-                <p class="tr-item-desc" id="hub-desc-poster">Published marketing posters</p>
-              </div>
-              <div class="tr-action-col"><div class="btn-download-circle-red"><i class="fa-solid fa-download"></i></div></div>
-            </div>
-
-            <div class="tr-resource-row" onclick="navigateToTrainingSection('smart_book')">
-              <div class="tr-icon-col tr-icon-green"><i class="fa-solid fa-book"></i></div>
-              <div class="tr-content-col">
-                <h5 class="tr-item-title">Sample Smart Book</h5>
-                <p class="tr-item-desc" id="hub-desc-smart_book">Published handbooks &amp; PDFs</p>
-              </div>
-              <div class="tr-action-col"><span class="badge-pill-green">View</span></div>
+              <div class="tr-action-col"><span class="btn btn-secondary btn-sm">View</span></div>
             </div>
           </div>
         </div>
       </section>
 
-      <!-- SCREEN 4-A: VIDEOS PAGE -->
+      <!-- SCREEN 4-A: VIDEOS PAGE (YouTube Grid) -->
       <section id="screen-training-videos" class="sub-screen">
         <div class="subpage-header-bar">
           <button class="btn btn-secondary btn-sm" onclick="returnToTrainingHub()"><i class="fa-solid fa-arrow-left"></i> Back</button>
           <h4 id="videos-page-title">Training Videos</h4>
           <span class="badge-lang" id="badge-lang-videos">All</span>
         </div>
-        <div id="videos-list-container" class="resource-items-scroll"></div>
+        <div id="videos-list-container" class="yt-video-grid"></div>
       </section>
 
-      <!-- SCREEN 4-B: SALES SCRIPTS -->
+      <!-- SCREEN 4-B: SALES SCRIPTS (Notion / Google Keep Cards) -->
       <section id="screen-training-scripts" class="sub-screen">
         <div class="subpage-header-bar">
           <button class="btn btn-secondary btn-sm" onclick="returnToTrainingHub()"><i class="fa-solid fa-arrow-left"></i> Back</button>
           <h4 id="scripts-page-title">Sales Scripts</h4>
           <span class="badge-lang" id="badge-lang-scripts">All</span>
         </div>
-        <div id="scripts-list-container" class="resource-items-scroll"></div>
+        <div id="scripts-list-container" class="keep-scripts-grid"></div>
       </section>
 
       <!-- SCREEN 4-C: FAQ PAGE -->
@@ -343,7 +397,7 @@
         <div id="faq-list-container" class="resource-items-scroll"></div>
       </section>
 
-      <!-- SCREEN 4-D: POSTERS PAGE -->
+      <!-- SCREEN 4-D: POSTERS PAGE (Pinterest / Google Photos Gallery) -->
       <section id="screen-training-posters" class="sub-screen">
         <div class="subpage-header-bar">
           <button class="btn btn-secondary btn-sm" onclick="returnToTrainingHub()"><i class="fa-solid fa-arrow-left"></i> Back</button>
@@ -353,14 +407,14 @@
         <div id="posters-grid-container" class="poster-grid-layout"></div>
       </section>
 
-      <!-- SCREEN 4-E: SAMPLE SMART BOOK PAGE -->
+      <!-- SCREEN 4-E: SAMPLE SMART BOOK PAGE (Google Drive Organised File Cards) -->
       <section id="screen-training-smartbook" class="sub-screen">
         <div class="subpage-header-bar">
           <button class="btn btn-secondary btn-sm" onclick="returnToTrainingHub()"><i class="fa-solid fa-arrow-left"></i> Back</button>
           <h4 id="smartbook-page-title">Sample Smart Books</h4>
           <span class="badge-lang" id="badge-lang-smartbook">All</span>
         </div>
-        <div id="smartbook-list-container" class="resource-items-scroll"></div>
+        <div id="smartbook-list-container" class="drive-files-grid"></div>
       </section>
 
       <!-- SCREEN 5: MY REPORT -->
@@ -383,7 +437,7 @@
             </div>
           </div>
           <div class="metric-card earning-card">
-            <div class="metric-icon blue-icon"><i class="fa-solid fa-indian-rupee-sign"></i></div>
+            <div class="metric-icon neutral-icon"><i class="fa-solid fa-indian-rupee-sign"></i></div>
             <div class="metric-content">
               <span class="label">Paid Earning</span>
               <strong id="wallet-page-paid">₹0</strong>
@@ -421,7 +475,7 @@
           <button class="btn btn-outline w-100 mb-2" onclick="openChangePasswordModal()">
             <i class="fa-solid fa-key"></i> CHANGE PASSWORD
           </button>
-          <button class="btn btn-danger w-100" onclick="logoutApp()">LOGOUT</button>
+          <button class="btn btn-primary w-100" onclick="logoutApp()">LOGOUT</button>
         </div>
       </section>
 
@@ -453,10 +507,10 @@
             </div>
           </div>
 
-          <button class="btn btn-primary w-100 btn-view-customers" onclick="switchTab('customers')">
+          <button class="btn btn-primary w-100" onclick="switchTab('customers')">
             <i class="fa-solid fa-list-check"></i> View Customer List
           </button>
-          <button class="btn btn-outline w-100 mt-2" onclick="switchTab('dashboard')">
+          <button class="btn btn-secondary w-100 mt-2" onclick="switchTab('dashboard')">
             Go to Dashboard
           </button>
         </div>
@@ -513,7 +567,7 @@
           <div class="admin-action-bar">
             <button class="btn btn-primary btn-sm" onclick="openAdminMaterialsPage()"><i class="fa-solid fa-folder-plus"></i> Training Materials</button>
             <button class="btn btn-outline btn-sm" onclick="openAdminWalletsPage()"><i class="fa-solid fa-money-check-dollar"></i> Employee Wallets</button>
-            <button class="btn btn-outline btn-sm" onclick="loadAdminTeam()"><i class="fa-solid fa-rotate"></i> Refresh</button>
+            <button class="btn btn-secondary btn-sm" onclick="loadAdminTeam()"><i class="fa-solid fa-rotate"></i> Refresh</button>
           </div>
         </div>
 
@@ -554,11 +608,10 @@
 
         <div id="admin-mat-status-banner" class="team-upload-result"></div>
 
-        <!-- Section 1: Training Videos -->
         <div class="admin-mat-section">
           <div class="admin-mat-section-head">
             <div class="admin-mat-title-wrap">
-              <div class="tr-icon-col tr-icon-blue"><i class="fa-solid fa-video"></i></div>
+              <div class="tr-icon-col tr-icon-red"><i class="fa-solid fa-video"></i></div>
               <div>
                 <h5>1. Training Videos</h5>
                 <small class="text-gray">MP4, WEBM, MOV, M4V, AVI, MKV or Video Link</small>
@@ -571,11 +624,10 @@
           <div id="admin-mat-list-video" class="admin-mat-list"></div>
         </div>
 
-        <!-- Section 2: Sales Scripts -->
         <div class="admin-mat-section">
           <div class="admin-mat-section-head">
             <div class="admin-mat-title-wrap">
-              <div class="tr-icon-col tr-icon-orange"><i class="fa-solid fa-file-lines"></i></div>
+              <div class="tr-icon-col tr-icon-neutral"><i class="fa-solid fa-file-lines"></i></div>
               <div>
                 <h5>2. Sales Scripts</h5>
                 <small class="text-gray">Script Text and/or TXT, PDF, DOC, DOCX, RTF, ODT</small>
@@ -588,7 +640,6 @@
           <div id="admin-mat-list-sales_script" class="admin-mat-list"></div>
         </div>
 
-        <!-- Section 3: Posters -->
         <div class="admin-mat-section">
           <div class="admin-mat-section-head">
             <div class="admin-mat-title-wrap">
@@ -605,11 +656,10 @@
           <div id="admin-mat-list-poster" class="admin-mat-list"></div>
         </div>
 
-        <!-- Section 4: Sample Smart Books -->
         <div class="admin-mat-section">
           <div class="admin-mat-section-head">
             <div class="admin-mat-title-wrap">
-              <div class="tr-icon-col tr-icon-green"><i class="fa-solid fa-book"></i></div>
+              <div class="tr-icon-col tr-icon-neutral"><i class="fa-solid fa-book"></i></div>
               <div>
                 <h5>4. Sample Smart Books</h5>
                 <small class="text-gray">PDF, XLS, XLSX, CSV, DOC, DOCX, PPT, PPTX, ZIP</small>
@@ -627,13 +677,32 @@
       <section id="screen-admin-wallets" class="sub-screen">
         <div class="admin-mat-topbar">
           <button class="btn btn-secondary btn-sm" onclick="openAdminTeamPage()"><i class="fa-solid fa-arrow-left"></i> Admin Dashboard</button>
-          <button class="btn btn-outline btn-sm" onclick="loadAdminWallets()"><i class="fa-solid fa-rotate"></i> Refresh</button>
+          <button class="btn btn-secondary btn-sm" onclick="loadAdminWallets()"><i class="fa-solid fa-rotate"></i> Refresh</button>
         </div>
 
         <div id="admin-wallets-banner" class="team-upload-result"></div>
         <div id="admin-wallets-list" class="card-list"></div>
       </section>
     </main>
+
+    <!-- Mobile Bottom Navigation (YouTube Mobile Inspired - Hidden on Desktop) -->
+    <nav class="mobile-bottom-nav" aria-label="Mobile Navigation">
+      <button class="bottom-nav-item active" data-tab="dashboard" onclick="switchTab('dashboard')">
+        <i class="fa-solid fa-house"></i><span>Home</span>
+      </button>
+      <button class="bottom-nav-item" data-tab="training" onclick="switchTab('training')">
+        <i class="fa-solid fa-graduation-cap"></i><span>Training</span>
+      </button>
+      <button class="bottom-nav-item" data-tab="customers" onclick="switchTab('customers')">
+        <i class="fa-solid fa-users"></i><span>Customers</span>
+      </button>
+      <button class="bottom-nav-item" data-tab="reports" onclick="switchTab('reports')">
+        <i class="fa-solid fa-folder-open"></i><span>Reports</span>
+      </button>
+      <button class="bottom-nav-item" data-tab="wallet" onclick="switchTab('wallet')">
+        <i class="fa-solid fa-wallet"></i><span>Wallet</span>
+      </button>
+    </nav>
   </div>
 
   <!-- Modals -->
@@ -721,7 +790,7 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick="backToAddCustomerModal()">Back</button>
-        <button id="btn-confirm-save-customer" class="btn btn-primary" onclick="confirmPaymentAndSaveCustomer()">Confirm & Submit</button>
+        <button id="btn-confirm-save-customer" class="btn btn-primary" onclick="confirmPaymentAndSaveCustomer()">Confirm &amp; Submit</button>
       </div>
     </div>
   </div>
@@ -773,6 +842,21 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-primary" onclick="copyFullScriptText()"><i class="fa-regular fa-copy"></i> Copy Script</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Training Material File / Poster Preview Modal -->
+  <div id="modal-file-preview" class="modal-backdrop hidden">
+    <div class="modal-card modal-card-wide">
+      <div class="modal-header">
+        <h4 id="file-preview-title">Preview</h4>
+        <button class="btn-close" onclick="closeModal('modal-file-preview')">&times;</button>
+      </div>
+      <div class="modal-body" id="file-preview-body"></div>
+      <div class="modal-footer">
+        <a id="file-preview-download" href="#" class="btn btn-primary hidden"><i class="fa-solid fa-download"></i> Download</a>
+        <button class="btn btn-secondary" onclick="closeModal('modal-file-preview')">Close</button>
       </div>
     </div>
   </div>
@@ -932,10 +1016,10 @@
                  onchange="onTeamFilesPicked(this)">
           <input type="file" id="team-folder-input" class="hidden" webkitdirectory directory multiple
                  onchange="onTeamFilesPicked(this)">
-          <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('team-file-input').click()">
+          <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('team-file-input').click()">
             <i class="fa-solid fa-file-circle-plus"></i> Select Files
           </button>
-          <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('team-folder-input').click()">
+          <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('team-folder-input').click()">
             <i class="fa-solid fa-folder-open"></i> Select Folder
           </button>
         </div>
